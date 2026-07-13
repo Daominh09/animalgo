@@ -12,15 +12,26 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    env:
+      # Dummy values so app.config.Settings can instantiate in CI — tests
+      # here don't hit a real DB/R2/DeepSeek. Real credentials live in each
+      # dev's local .env and in the deploy target's secrets, never here.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost/postgres
+      SUPABASE_URL: https://ci-placeholder.supabase.co
+      SUPABASE_JWT_SECRET: ci-placeholder
+      R2_ACCESS_KEY_ID: ci-placeholder
+      R2_SECRET_ACCESS_KEY: ci-placeholder
+      R2_BUCKET_NAME: ci-placeholder
+      R2_ENDPOINT_URL: https://ci-placeholder.r2.cloudflarestorage.com
+      DEEPSEEK_API_KEY: ci-placeholder
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt
-      - run: pip install ruff pytest
+      - run: pip install -r requirements-dev.txt
       - run: ruff check .
-      - run: pytest || true   # remove `|| true` once real tests exist
+      - run: pytest
 
   mobile:
     runs-on: ubuntu-latest
@@ -32,5 +43,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - run: npm install
+      - run: npm ci
       - run: npx tsc --noEmit
+      - run: npm run lint

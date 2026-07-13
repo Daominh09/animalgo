@@ -17,23 +17,26 @@ A mobile game where players photograph real animals, get them ranked by rarity, 
 
 ## Getting Started
 
+First time on this project? See **[SETUP.md](SETUP.md)** — it walks through
+creating the shared Supabase/R2/DeepSeek/Redis accounts and the git workflow.
+Quick reference once you have credentials:
+
 ### Mobile
 ```
 cd mobile
-npm install
-cp .env.example .env   # fill in EXPO_PUBLIC_API_URL and Supabase keys
+npm ci                  # committed lockfile, versions pinned to Expo SDK 57
+cp .env.example .env    # fill in EXPO_PUBLIC_API_URL and Supabase keys
 npx expo start
 ```
-Note: the versions in `package.json` are starting points. Run `npx expo install <package>` for
-each Expo-related dependency once you've cloned this, so versions align with your installed Expo SDK.
 
 ### Backend
 ```
 cd backend
 python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 cp .env.example .env       # fill in Supabase, R2, DeepSeek, Redis credentials
+alembic upgrade head       # apply migrations to the shared Supabase DB
 uvicorn app.main:app --reload
 ```
 
