@@ -12,18 +12,23 @@ setup" individually.
 1. Go to [supabase.com](https://supabase.com) → New project.
 2. Pick a region close to your team, set a strong DB password (save it —
    you'll need it in the connection string).
-3. Once provisioned, go to **Project Settings → Database → Connection string**.
-   Use the **Session pooler** (or direct connection) string on port `5432`,
-   not the "Transaction" pooler on `6543` — `asyncpg` needs prepared
-   statement support that the transaction pooler doesn't give you by default.
-   It looks like:
-   `postgresql://postgres.xxxx:[PASSWORD]@aws-x-region.pooler.supabase.com:5432/postgres`
-   Rewrite the scheme to `postgresql+asyncpg://...` for `backend/.env`'s
+3. Click **Connect** (top nav) → **Direct** tab → Connection Method →
+   **Session pooler**, Type `URI`, port `5432`. Not "Direct connection"
+   (IPv6-only unless you pay for the IPv4 add-on — will fail to resolve on
+   most home networks) and not "Transaction pooler" on port `6543`
+   (`asyncpg` needs prepared-statement support that mode doesn't give you).
+   Fill in the DB password you set at project creation, then rewrite the
+   scheme from `postgresql://` to `postgresql+asyncpg://` for `backend/.env`'s
    `DATABASE_URL`.
-4. Go to **Project Settings → API**. Copy the **Project URL** (`SUPABASE_URL`)
-   and the **JWT Secret** (under "JWT Settings" — may be labeled "Legacy JWT
-   Secret" depending on when you read this) → `SUPABASE_JWT_SECRET`.
-5. Share `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_JWT_SECRET` with the team.
+4. Go to **Settings → API Keys**, copy the **Project URL** → `SUPABASE_URL`.
+   You do *not* need a JWT secret: this app's backend verifies tokens via
+   the project's JWKS endpoint (`{SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
+   which works automatically for projects on Supabase's newer asymmetric JWT
+   signing keys (check **Settings → JWT Keys** — if "JWT Signing Keys" shows
+   an ECC/RSA current key, you're on this path already; if the project only
+   ever shows a "Legacy JWT Secret" with no signing keys tab, ping whoever's
+   doing the backend work since `auth.py` will need a different code path).
+5. Share `DATABASE_URL` and `SUPABASE_URL` with the team.
 
 ### 2. Cloudflare R2 (photo storage)
 1. Cloudflare dashboard → R2 → Create bucket, name it `animalgo-photos`.
