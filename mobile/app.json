@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "AnimalGO",
+    "slug": "animalgo",
+    "scheme": "animalgo",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        { "cameraPermission": "AnimalGO needs camera access to identify animals you photograph." }
+      ],
+      [
+        "expo-location",
+        { "locationAlwaysAndWhenInUsePermission": "AnimalGO uses your location to tag where you found each animal." }
+      ]
+    ],
+    "ios": { "supportsTablet": false },
+    "android": {}
+  }
+}
