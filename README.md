@@ -29,10 +29,9 @@ macOS, which is impossible inside a Linux container. So you still need
 **Expo Go on your phone** to actually view the mobile app; Docker just
 removes the "install Node, run npm ci" step, not that one.
 
-1. Get the **shared credentials** — see
-   [Shared accounts](#shared-accounts-one-time-team-setup) below if nobody's
-   created them yet, or grab them from a teammate (password manager, not
-   Slack/email in plaintext) if they have.
+1. Get the **shared credentials** from whoever set up the accounts (password
+   manager, not Slack/email plaintext) — you'll need values for
+   `backend/.env` (Supabase, R2, DeepSeek) and `mobile/.env` (Supabase).
 2. ```
    cp backend/.env.example backend/.env   # fill in the shared credentials
    cp mobile/.env.example mobile/.env     # fill in EXPO_PUBLIC_* keys
@@ -61,7 +60,8 @@ needed unless you change `package.json`/`requirements.txt`.
 Closer to how things actually run in production; also what you need if
 you're touching Python/Node dependencies rather than just app code.
 
-1. Same credentials step as above.
+1. Same credentials step as above — get them from whoever set up the
+   accounts, don't create your own.
 2. **Backend**
    ```
    cd backend
@@ -102,65 +102,30 @@ cd mobile && npx tsc --noEmit && npm run lint && npx expo-doctor
 ```
 All of these should pass clean on a fresh clone.
 
-## Shared accounts (one-time team setup)
+## Env files you need to fill in
 
-Do this once as a team — whoever sets each one up shares the resulting
-values with the others via a password manager, never in Slack/email
-plaintext.
+Ask whoever set up the shared accounts for these values (password manager,
+not Slack/email plaintext) — accounts are already created, you're just
+filling in credentials, not signing up for anything.
 
-### 1. Supabase (Postgres + Auth)
-1. Go to [supabase.com](https://supabase.com) → New project.
-2. Pick a region close to your team, set a strong DB password (save it —
-   you'll need it in the connection string).
-3. Click **Connect** (top nav) → **Direct** tab → Connection Method →
-   **Session pooler**, Type `URI`, port `5432`. Not "Direct connection"
-   (IPv6-only unless you pay for the IPv4 add-on — will fail to resolve on
-   most home networks) and not "Transaction pooler" on port `6543`
-   (`asyncpg` needs prepared-statement support that mode doesn't give you).
-   Fill in the DB password you set at project creation, then rewrite the
-   scheme from `postgresql://` to `postgresql+asyncpg://` for `backend/.env`'s
-   `DATABASE_URL`.
-4. Go to **Settings → API Keys**, copy the **Project URL** → `SUPABASE_URL`.
-   You do *not* need a JWT secret: this app's backend verifies tokens via
-   the project's JWKS endpoint (`{SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
-   which works automatically for projects on Supabase's newer asymmetric JWT
-   signing keys (check **Settings → JWT Keys** — if "JWT Signing Keys" shows
-   an ECC/RSA current key, you're on this path already; if the project only
-   ever shows a "Legacy JWT Secret" with no signing keys tab, ping whoever's
-   doing the backend work since `auth.py` will need a different code path).
-5. Share `DATABASE_URL` and `SUPABASE_URL` with the team.
+**`backend/.env`** (copy from `backend/.env.example`):
+- `DATABASE_URL` — Supabase Postgres connection string
+- `SUPABASE_URL`
+- `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
+  `R2_BUCKET_NAME`, `R2_ENDPOINT_URL` — Cloudflare R2
+- `DEEPSEEK_API_KEY` — currently blocked, see the Tech Stack note above;
+  ask before building against it
+- `REDIS_URL` — leave as the default; Docker overrides it to the local
+  container automatically. Only matters if running natively without Docker
+  and without a local Redis, or once there's a real deployment target.
+- `IUCN_API_TOKEN` — optional for Week 1
 
-### 2. Cloudflare R2 (photo storage)
-1. Cloudflare dashboard → R2 → Create bucket, name it `animalgo-photos`.
-2. R2 → Manage API tokens → **Create Account API token** (not "User API
-   token" — this is a service credential shared across the team and
-   eventually production, not tied to one person's login).
-3. Permissions: Object Read & Write, scoped to `animalgo-photos` only.
-4. Note down: Account ID, Access Key ID, Secret Access Key.
-5. `R2_ENDPOINT_URL` is `https://<account_id>.r2.cloudflarestorage.com`.
-6. Share `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
-   `R2_BUCKET_NAME`, `R2_ENDPOINT_URL` with the team.
+**`mobile/.env`** (copy from `mobile/.env.example`):
+- `EXPO_PUBLIC_API_URL` — see the LAN IP note in the setup steps above
+- `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`
 
-### 3. DeepSeek (blocked — see Tech Stack note above)
-1. [platform.deepseek.com](https://platform.deepseek.com) → add billing
-   credit → API keys → Create.
-2. Share `DEEPSEEK_API_KEY` with the team. `DEEPSEEK_BASE_URL` stays the
-   default (`https://api.deepseek.com`).
-3. Before building against it: confirm the vision-provider question above
-   is resolved. The key will authenticate fine for text-only chat
-   completions, but image input isn't supported by this API as of writing.
-
-### 4. Redis (Upstash) — only needed for production/staging
-Local dev uses the Redis container in `docker-compose.yml` — you don't need
-this until deploying somewhere that isn't your laptop.
-1. [upstash.com](https://upstash.com) → Create database (Redis, regional is
-   fine for a 4-person project).
-2. Copy the `rediss://...` connection string → `REDIS_URL`.
-
-### 5. IUCN Red List API token (optional for week 1)
-1. [apiv3.iucnredlist.org](https://apiv3.iucnredlist.org) → request a token.
-2. `IUCN_API_TOKEN` — B's rarity engine needs this once it moves off the
-   placeholder in `backend/app/services/gbif_iucn.py`.
+**`.env`** at the repo root (Docker only, copy from root `.env.example`):
+- `HOST_LAN_IP` — your own machine's LAN IP, see the Docker steps above
 
 ## Schema changes (Alembic)
 
