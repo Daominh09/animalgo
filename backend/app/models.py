@@ -31,11 +31,18 @@ class Capture(Base):
 
 
 class SpeciesCache(Base):
+    """Durable per-species rarity reference cache (Postgres). Redis is the hot cache in
+    front of this (app/services/cache.py); this table is the record written on the
+    capture path so rarity data survives a Redis flush and stays auditable.
+
+    The app targets US-based players only, so occurrence counts are always US and there
+    is no region column — species_id alone is the primary key.
+    """
+
     __tablename__ = "species_cache"
     species_id: Mapped[str] = mapped_column(String, primary_key=True)
     common_name: Mapped[str] = mapped_column(String)
-    gbif_occurrence_count: Mapped[int] = mapped_column(Integer, default=0)
-    region: Mapped[str] = mapped_column(String)
+    gbif_occurrence_count: Mapped[int] = mapped_column(Integer, default=0)  # US occurrences
     iucn_status: Mapped[str] = mapped_column(String, default="NE")
     cached_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
