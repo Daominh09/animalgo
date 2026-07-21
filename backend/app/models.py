@@ -14,7 +14,6 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)  # matches Supabase auth.users.id
     display_name: Mapped[str] = mapped_column(String, default="")
     wallet_balance: Mapped[int] = mapped_column(Integer, default=0)
-    push_token: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class Capture(Base):
