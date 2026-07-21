@@ -15,8 +15,7 @@
       [
         "expo-location",
         { "locationAlwaysAndWhenInUsePermission": "AnimalGO uses your location to tag where you found each animal." }
-      ],
-      "expo-notifications"
+      ]
     ],
     "ios": { "supportsTablet": false },
     "android": {}
