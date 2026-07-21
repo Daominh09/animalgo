@@ -13,7 +13,7 @@
   "dependencies": {
     "@maplibre/maplibre-react-native": "^10.0.0",
     "@tanstack/react-query": "^5.0.0",
-    "expo": "54.0.35",
+    "expo": "54.0.36",
     "expo-camera": "~17.0.10",
     "expo-constants": "~18.0.13",
     "expo-linking": "~8.0.12",
@@ -22,7 +22,8 @@
     "expo-router": "~6.0.24",
     "expo-status-bar": "~3.0.9",
     "nativewind": "^4.0.0",
-    "react": "^19.2.3",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
     "react-native": "0.81.5",
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
@@ -33,15 +34,9 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.10",
+    "babel-preset-expo": "~54.0.12",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~10.0.0",
     "typescript": "~5.9.2"
-  },
-  "expo": {
-    "install": {
-      "exclude": [
-        "react"
-      ]
-    }
   }
 }

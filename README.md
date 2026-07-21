@@ -17,73 +17,61 @@ A mobile game where players photograph real animals, get them ranked by rarity, 
 
 ## Getting Started
 
-### Option A: Docker (recommended — no Node/Python setup needed)
+Backend runs via Docker or natively, your choice. Mobile always runs
+natively — Expo Go and the iOS Simulator both need to talk to a live Metro
+process on your machine; running Metro inside a container turned out to be
+more trouble than it's worth (flaky native-binary loading under Docker's
+process supervision — `lightningcss`, used by NativeWind, failed to load
+consistently when run as the container's main process, even though it
+loaded fine in one-off debugging containers, most likely something specific
+to how Docker Desktop on macOS handles PID 1 for that init.node addon load
+path — not worth chasing further given Docker buys nothing for Metro
+compared to running it directly).
 
-Runs all three services (backend, mobile's Metro bundler, a local Redis) in
-containers. Nobody needs Node.js or Python installed locally, and dependency
-installs happen inside the image, not on your machine.
+### Backend — Docker (recommended)
+```
+cd backend
+cp .env.example .env    # fill in the shared credentials
+cd ..
+docker compose up --build
+```
+This builds the backend image and starts it alongside a local Redis
+container — no need for the Upstash account until you actually deploy.
+`REDIS_URL` in `.env` is overridden automatically to point at that
+container; everything else (`DATABASE_URL`, `SUPABASE_URL`, R2, DeepSeek)
+comes straight from your `.env`. Code changes on your host are picked up
+live (bind-mounted, `uvicorn --reload`) — no rebuild needed for Python edits,
+only for dependency changes.
 
-**One real limitation**: Docker can run the Metro bundler for you, but it
-**cannot** run the iOS Simulator — that needs Xcode running natively on
-macOS, which is impossible inside a Linux container. So you still need
-**Expo Go on your phone** to actually view the mobile app; Docker just
-removes the "install Node, run npm ci" step, not that one.
+Visit `http://localhost:8000/health` → `{"status": "ok"}`.
+Stop it with `docker compose down`.
 
-1. Get the **shared credentials** from whoever set up the accounts (password
-   manager, not Slack/email plaintext) — you'll need values for
-   `backend/.env` (Supabase, R2, DeepSeek) and `mobile/.env` (Supabase).
-2. ```
-   cp backend/.env.example backend/.env   # fill in the shared credentials
-   cp mobile/.env.example mobile/.env     # fill in EXPO_PUBLIC_* keys
-   cp .env.example .env
-   # set HOST_LAN_IP in that root .env to your machine's LAN IP —
-   # `ipconfig getifaddr en0` on macOS. This is what lets your phone's
-   # Expo Go actually reach the container; skipping it breaks the QR code.
-   docker compose up --build
-   ```
-3. Backend: visit `http://localhost:8000/health` → `{"status": "ok"}`.
-4. Mobile: watch the `mobile` service logs for a QR code (`docker compose
-   logs mobile`, or just watch the terminal you ran `up` in) and scan it
-   with Expo Go. Your phone must be on the **same Wi-Fi** as this machine.
-5. First time only — apply migrations to the shared DB (containers don't do
-   this automatically, since it only needs to happen once, not on every
-   container start): see step 3 under Option B below, or run it via
-   `docker compose exec backend alembic upgrade head`.
+Migrations don't run automatically inside the container — run them from
+your host once (see native setup below), since they only need to happen
+once against the shared DB, not per-container-start.
 
-Stop everything with `docker compose down` (add `-v` to also drop Redis's
-data, though there's nothing durable in it — it's just a cache). Code
-changes on your host are picked up live in both containers — no rebuild
-needed unless you change `package.json`/`requirements.txt`.
+### Backend — native
+```
+cd backend
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements-dev.txt
+cp .env.example .env       # fill in the shared credentials
+alembic upgrade head       # apply migrations to the shared Supabase DB
+uvicorn app.main:app --reload
+```
 
-### Option B: Native
-
-Closer to how things actually run in production; also what you need if
-you're touching Python/Node dependencies rather than just app code.
-
-1. Same credentials step as above — get them from whoever set up the
-   accounts, don't create your own.
-2. **Backend**
-   ```
-   cd backend
-   python -m venv venv
-   source venv/bin/activate   # Windows: venv\Scripts\activate
-   pip install -r requirements-dev.txt
-   cp .env.example .env       # fill in the shared credentials
-   alembic upgrade head       # apply migrations to the shared Supabase DB
-   uvicorn app.main:app --reload
-   ```
-3. **Mobile**
-   ```
-   cd mobile
-   npm ci                  # committed lockfile, versions pinned to Expo SDK 54
-   cp .env.example .env
-   # fill in EXPO_PUBLIC_API_URL (your machine's LAN IP if testing on a
-   # physical device via Expo Go — get it with `ipconfig getifaddr en0` on
-   # macOS — not localhost, the phone can't resolve that) and the Supabase keys
-   npx expo start
-   ```
-   Scan the QR code with Expo Go, or press `i`/`a` for a simulator (only
-   available this way — see the Docker limitation above).
+### Mobile
+```
+cd mobile
+npm ci                  # committed lockfile, versions pinned to Expo SDK 54
+cp .env.example .env
+# fill in EXPO_PUBLIC_API_URL (your machine's LAN IP if testing on a
+# physical device via Expo Go — get it with `ipconfig getifaddr en0` on
+# macOS — not localhost, the phone can't resolve that) and the Supabase keys
+npx expo start
+```
+Scan the QR code with Expo Go, or press `i`/`a` for a simulator.
 
 Pinned to Expo **SDK 54**, not the newer SDK 57, on purpose: as of writing,
 the public Expo Go app on the App Store still ships the SDK 54 runtime —
@@ -123,9 +111,6 @@ filling in credentials, not signing up for anything.
 **`mobile/.env`** (copy from `mobile/.env.example`):
 - `EXPO_PUBLIC_API_URL` — see the LAN IP note in the setup steps above
 - `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`
-
-**`.env`** at the repo root (Docker only, copy from root `.env.example`):
-- `HOST_LAN_IP` — your own machine's LAN IP, see the Docker steps above
 
 ## Schema changes (Alembic)
 
