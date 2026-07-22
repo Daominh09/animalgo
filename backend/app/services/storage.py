@@ -24,3 +24,16 @@ def generate_presigned_upload_url(object_key: str, content_type: str = "image/jp
 
 def public_object_url(object_key: str) -> str:
     return f"{settings.r2_endpoint_url}/{settings.r2_bucket_name}/{object_key}"
+
+
+def upload_bytes(
+    object_key: str, data: bytes, content_type: str = "image/jpeg"
+) -> str:
+    """Upload raw bytes straight from the backend (not via a presigned URL)."""
+    s3.put_object(
+        Bucket=settings.r2_bucket_name,
+        Key=object_key,
+        Body=data,
+        ContentType=content_type,
+    )
+    return public_object_url(object_key)

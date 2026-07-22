@@ -1,35 +1,61 @@
 import json
 
-from openai import OpenAI
+import httpx
 
 from app.config import settings
 
 # Owner: Person A — Capture & Species ID
-# Week 1: prototype this call against ~15-20 sample images, log accuracy
+# Species ID runs against Google Gemini vision (free tier: gemini-2.5-flash).
+# DeepSeek was the original plan but its API rejects image input; Gemini was
+# the fallback, verified against ~5 sample images (species-level, including
+# hard small birds like house sparrow).
 # Week 2: wire confidence threshold branching in app/routers/captures.py
 
-client = OpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url)
+GEMINI_URL = (
+    f"https://generativelanguage.googleapis.com/v1beta/models/"
+    f"{settings.gemini_model}:generateContent"
+)
 
 SPECIES_ID_PROMPT = (
-    "You are identifying an animal species from a photo. "
-    'Respond with ONLY a JSON object, no other text: {"species": "<common name>", "confidence": <0-1 float>}'
+    "Identify the animal species in this photo. If there is no animal, use "
+    '"none" as the species. Respond with a JSON object: '
+    '{"species": "<common name or none>", "confidence": <0-1 float>}'
 )
 
 
-async def identify_species(image_url: str) -> dict:
-    response = client.chat.completions.create(
-        model="deepseek-v4-pro",
-        messages=[
+async def identify_species(image_bytes: bytes, mime_type: str = "image/jpeg") -> dict:
+    import base64
+
+    payload = {
+        "contents": [
             {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": SPECIES_ID_PROMPT},
-                    {"type": "image_url", "image_url": {"url": image_url}},
-                ],
+                "parts": [
+                    {"text": SPECIES_ID_PROMPT},
+                    {
+                        "inline_data": {
+                            "mime_type": mime_type,
+                            "data": base64.b64encode(image_bytes).decode(),
+                        }
+                    },
+                ]
             }
         ],
-    )
-    raw = response.choices[0].message.content
-    # TODO: parse defensively — DeepSeek may wrap JSON in prose depending on prompt/model behavior.
-    # Verify at build time whether a strict JSON response mode is available.
-    return json.loads(raw)
+        # Force raw JSON — otherwise Gemini sometimes wraps the object in
+        # ```json ... ``` markdown fences and json.loads() chokes.
+        "generationConfig": {"responseMimeType": "application/json"},
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            GEMINI_URL,
+            headers={"x-goog-api-key": settings.gemini_api_key},
+            json=payload,
+        )
+        response.raise_for_status()
+
+    text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+    parsed = json.loads(text)
+    return {
+        "species": parsed.get("species"),
+        "confidence": float(parsed.get("confidence", 0)),
+    }
