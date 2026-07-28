@@ -16,6 +16,7 @@
     "expo": "54.0.36",
     "expo-camera": "~17.0.10",
     "expo-constants": "~18.0.13",
+    "expo-device": "~8.0.10",
     "expo-linking": "~8.0.12",
     "expo-location": "~19.0.8",
     "expo-notifications": "~0.32.17",
