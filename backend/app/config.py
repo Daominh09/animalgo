@@ -14,10 +14,16 @@ class Settings(BaseSettings):
     deepseek_api_key: str
     deepseek_base_url: str = "https://api.deepseek.com"
 
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+
     redis_url: str = "redis://localhost:6379"
     iucn_api_token: str = ""
 
-    model_config = SettingsConfigDict(env_file=".env")
+    # extra="ignore" so unused/extra keys in .env (e.g. the split REDIS_HOST/
+    # REDIS_PORT/REDIS_USERNAME/REDIS_PASSWORD credentials) don't crash startup.
+    # The app connects to Redis via REDIS_URL only.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()
