@@ -1,20 +1,24 @@
 // Owner: Person B — Rarity Engine & Collection
 //
-// The map document, shared by the native and web Map screens.
+// Shared map configuration, plus the HTML document used on native.
 //
-// We render MapLibre GL JS in a browser context rather than using
-// @maplibre/maplibre-react-native: that native module is not bundled in Expo Go, and
-// the team's workflow is `expo start` + Expo Go. Expo Router eagerly loads every route
-// file, so importing it crashes the app on startup for everyone. This approach also
-// keeps us off Google Maps (which react-native-maps would use on Android).
+// We render MapLibre GL JS rather than using @maplibre/maplibre-react-native: that
+// native module is not bundled in Expo Go, and the team's workflow is `expo start` +
+// Expo Go. Expo Router eagerly loads every route file, so importing it crashes the app
+// on startup for everyone. This also keeps us off Google Maps (which react-native-maps
+// would use on Android).
 //
-// Two hosts render this same HTML:
-//   app/(tabs)/map.tsx      — native: react-native-webview (ships inside Expo Go)
-//   app/(tabs)/map.web.tsx  — web:    an <iframe> (react-native-webview has no web build)
+// The two platforms host MapLibre differently:
+//   app/(tabs)/map.tsx      — native: buildMapHtml() inside react-native-webview
+//   app/(tabs)/map.web.tsx  — web:    MapLibre mounted directly into the page
 //
-// Week 2: pins. Pass a GeoJSON FeatureCollection into `buildMapHtml` and it renders as
-// circles. Captures whose coordinates were fuzzed or withheld for sensitive species
-// (IUCN VU/EN/CR) have no coordinates, so they simply never become features.
+// Web deliberately does NOT use an <iframe srcDoc>: that gives the document an opaque
+// origin, and MapLibre spawns a Web Worker from a blob URL, which browsers block in
+// that context — the map fails to initialise and renders blank.
+//
+// Week 2: pass pins to buildGeoJson/buildMapHtml and they render as rarity-coloured
+// circles on both platforms. Captures whose coordinates were fuzzed or withheld for
+// sensitive species (IUCN VU/EN/CR) have no coordinates, so they never become features.
 
 /** A capture rendered as a map pin. Captures without coordinates are filtered out upstream. */
 export interface MapPin {
@@ -26,11 +30,12 @@ export interface MapPin {
 }
 
 // Free demo tiles hosted by MapLibre — no API key, no usage fees.
-const STYLE_URL = "https://demotiles.maplibre.org/style.json";
-const MAPLIBRE_JS = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js";
-const MAPLIBRE_CSS = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css";
+export const STYLE_URL = "https://demotiles.maplibre.org/style.json";
+export const MAPLIBRE_VERSION = "4.7.1";
+export const MAPLIBRE_JS = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
+export const MAPLIBRE_CSS = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
 
-const RARITY_COLORS: Record<MapPin["rarity"], string> = {
+export const RARITY_COLORS: Record<MapPin["rarity"], string> = {
   legendary: "#f59e0b",
   rare: "#0ea5e9",
   uncommon: "#10b981",
@@ -38,20 +43,39 @@ const RARITY_COLORS: Record<MapPin["rarity"], string> = {
 };
 
 // Default view: continental US, since the app targets US-based players.
-const CENTER: [number, number] = [-98.5, 39.8]; // [lng, lat]
-const ZOOM = 3;
+export const CENTER: [number, number] = [-98.5, 39.8]; // [lng, lat]
+export const ZOOM = 3;
 
-/** Builds the self-contained map document. */
-export function buildMapHtml(pins: MapPin[] = []): string {
-  // JSON.stringify keeps injected data escaped — no raw interpolation into JS source.
-  const data = JSON.stringify({
+/** GeoJSON for the capture pins layer. */
+export function buildGeoJson(pins: MapPin[] = []) {
+  return {
     type: "FeatureCollection",
     features: pins.map((p) => ({
       type: "Feature",
       geometry: { type: "Point", coordinates: [p.lng, p.lat] },
       properties: { id: p.id, color: RARITY_COLORS[p.rarity] },
     })),
-  });
+  };
+}
+
+/** The circle layer definition, shared by both platforms. */
+export const PIN_LAYER = {
+  id: "capture-pins",
+  type: "circle",
+  source: "captures",
+  paint: {
+    "circle-radius": 7,
+    "circle-color": ["get", "color"],
+    "circle-stroke-width": 2,
+    "circle-stroke-color": "#ffffff",
+  },
+};
+
+/** Self-contained map document, used by the native WebView. */
+export function buildMapHtml(pins: MapPin[] = []): string {
+  // JSON.stringify keeps injected data escaped — no raw interpolation into JS source.
+  const data = JSON.stringify(buildGeoJson(pins));
+  const layer = JSON.stringify(PIN_LAYER);
 
   return `<!DOCTYPE html>
 <html>
@@ -65,36 +89,23 @@ export function buildMapHtml(pins: MapPin[] = []): string {
 <body>
 <div id="map"></div>
 <script>
-  // react-native-webview listens on ReactNativeWebView; the web <iframe> host listens
-  // for postMessage. Sending both keeps this document host-agnostic.
-  function post(msg) {
-    if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); }
-    else if (window.parent) { window.parent.postMessage(msg, '*'); }
-  }
+  function post(msg) { if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); } }
   try {
-    var map = new maplibregl.Map({
-      container: 'map',
-      style: '${STYLE_URL}',
-      center: [${CENTER[0]}, ${CENTER[1]}],
-      zoom: ${ZOOM}
-    });
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-    map.on('load', function () {
-      map.addSource('captures', { type: 'geojson', data: ${data} });
-      map.addLayer({
-        id: 'capture-pins',
-        type: 'circle',
-        source: 'captures',
-        paint: {
-          'circle-radius': 7,
-          'circle-color': ['get', 'color'],
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#ffffff'
-        }
+    if (!window.maplibregl) { post('error'); } else {
+      var map = new maplibregl.Map({
+        container: 'map',
+        style: '${STYLE_URL}',
+        center: [${CENTER[0]}, ${CENTER[1]}],
+        zoom: ${ZOOM}
       });
-      post('ready');
-    });
-    map.on('error', function () { post('error'); });
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+      map.on('load', function () {
+        map.addSource('captures', { type: 'geojson', data: ${data} });
+        map.addLayer(${layer});
+        post('ready');
+      });
+      map.on('error', function () { post('error'); });
+    }
   } catch (e) { post('error'); }
 </script>
 </body>
