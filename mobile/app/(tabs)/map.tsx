@@ -3,53 +3,20 @@ import { View, Text, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 
+import { MAP_HTML } from "@/map/mapHtml";
+
 // Owner: Person B — Rarity Engine & Collection
+// Native (iOS/Android) Map screen. The web version lives in map.web.tsx, because
+// react-native-webview has no web build; both render the same document from
+// src/map/mapHtml.ts.
+//
 // Week 1: MapLibre shell — a real, interactive map with no capture pins yet.
-// Week 2: add capture pins; captures whose coordinates were fuzzed/withheld for
-//   sensitive species (IUCN VU/EN/CR) must be excluded, not plotted at a wrong spot.
+// Week 2: pass real captures into buildMapHtml; captures whose coordinates were fuzzed
+//   or withheld for sensitive species (IUCN VU/EN/CR) must be excluded, not mislocated.
 //
 // IMPORTANT: do not import @maplibre/maplibre-react-native here. It is a native module
-// that Expo Go cannot load, and Expo Router eagerly loads every route file — so that
-// import crashes the whole app on startup, not just this tab. We render MapLibre GL JS
-// in a WebView instead: same MapLibre (no Google Maps fees), but react-native-webview
-// ships inside Expo Go, so it works without a dev build.
-
-// Free demo tiles hosted by MapLibre — no API key, no usage fees.
-const STYLE_URL = "https://demotiles.maplibre.org/style.json";
-const MAPLIBRE_JS = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js";
-const MAPLIBRE_CSS = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css";
-
-// Default view: continental US, since the app targets US-based players.
-const CENTER: [number, number] = [-98.5, 39.8]; // [lng, lat]
-const ZOOM = 3;
-
-const MAP_HTML = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<link href="${MAPLIBRE_CSS}" rel="stylesheet" />
-<script src="${MAPLIBRE_JS}"></script>
-<style>html,body,#map{margin:0;padding:0;height:100%;width:100%}body{background:#eef2f7}</style>
-</head>
-<body>
-<div id="map"></div>
-<script>
-  function post(msg){ if(window.ReactNativeWebView){ window.ReactNativeWebView.postMessage(msg); } }
-  try {
-    var map = new maplibregl.Map({
-      container: 'map',
-      style: '${STYLE_URL}',
-      center: [${CENTER[0]}, ${CENTER[1]}],
-      zoom: ${ZOOM}
-    });
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-    map.on('load', function(){ post('ready'); });
-    map.on('error', function(){ post('error'); });
-  } catch (e) { post('error'); }
-</script>
-</body>
-</html>`;
+// Expo Go cannot load, and Expo Router eagerly loads every route file — so that import
+// crashes the whole app on startup, not just this tab.
 
 export default function MapScreen() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
