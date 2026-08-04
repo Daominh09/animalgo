@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
 
+    # OpenRouter — vision fallback used when Gemini has no key or its call fails.
+    # Field name matches the OPEN_ROUTER_API_KEY spelling already in .env.
+    open_router_api_key: str = ""
+    open_router_model: str = "google/gemma-4-31b-it:free"
+    open_router_base_url: str = "https://openrouter.ai/api/v1"
+
     # Redis: set EITHER redis_url (Upstash / local docker) OR the discrete
     # host/port/username/password fields (Redis Cloud / redislabs gives these).
     # redis_url wins if set; otherwise redis_dsn assembles a URL from the parts.

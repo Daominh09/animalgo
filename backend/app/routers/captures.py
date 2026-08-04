@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.dependencies.auth import get_current_user_id
-from app.services import storage, vision
+from app.services import species, storage, vision
 
 router = APIRouter(prefix="/captures", tags=["captures"])
 
@@ -19,17 +19,21 @@ router = APIRouter(prefix="/captures", tags=["captures"])
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
-@router.post("/detect")
+@router.post("/detect-and-store")
 async def detect_and_store(
     file: UploadFile = File(...),
     lat: float | None = None,
     lng: float | None = None,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Identify the animal first, then push the photo to R2.
+    """Identify the animal in a photo, store the photo, and score how rare it is.
 
-    Week 1 slice: no DB write, no rarity scoring yet — just species ID +
-    storage so the capture pipeline can be exercised end to end.
+    Upload a photo (max 10 MB). Returns the species, the stored image URL, and a
+    `rarity` object with the tier and coin value.
+
+    Auth: click **Authorize** and paste a Supabase user `access_token` (the anon key
+    will not work). `rarity` is `null` when rarity could not be determined — that means
+    *unknown*, not zero and not "common". Full details in `backend/docs/capture-flow.md`.
     """
     # read() with a cap so an oversized upload never fully lands in memory.
     image_bytes = await file.read(MAX_UPLOAD_BYTES + 1)
@@ -44,4 +48,19 @@ async def detect_and_store(
     )
     object_key = f"{user_id}/{uuid.uuid4()}.jpg"
     image_url = storage.upload_bytes(object_key, image_bytes)
-    return {**result, "image_url": image_url, "object_key": object_key}
+
+    # Hand-off to Person B's rarity engine: the identified species triggers the
+    # GBIF + IUCN lookup automatically (both Redis-cached). `rarity` is None when the
+    # species could not be resolved -- that means "unknown", NOT a rarity of zero, so
+    # don't fall back to a tier here. See app/services/species.py.
+    rarity_result = await species.resolve_species_rarity(
+        scientific_name=result.get("scientific_name"),
+        common_name=result.get("species"),
+    )
+
+    return {
+        **result,
+        "image_url": image_url,
+        "object_key": object_key,
+        "rarity": rarity_result,
+    }
