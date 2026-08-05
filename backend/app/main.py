@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 
-from app.routers import battles, captures, collection, devices, leaderboard, shop, wallet
+from app.routers import auth, battles, captures, collection, devices, leaderboard, shop, wallet
 
 app = FastAPI(title="AnimalGO API")
 
+app.include_router(auth.router)
 app.include_router(captures.router)
 app.include_router(collection.router)
 app.include_router(battles.router)

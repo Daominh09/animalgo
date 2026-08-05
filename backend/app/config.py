@@ -5,6 +5,11 @@ class Settings(BaseSettings):
     database_url: str
     supabase_url: str
 
+    # Dev only: the project's anon/publishable key. Used solely by POST /auth/token to
+    # trade an email + password for a user access token. Leaving it blank disables that
+    # endpoint (503), which is how it stays out of a deployed environment.
+    supabase_anon_key: str = ""
+
     r2_account_id: str = ""
     r2_access_key_id: str
     r2_secret_access_key: str
