@@ -57,7 +57,7 @@ SCORED = {
     "gbif_occurrence_count": 500,
     "iucn_status": "LC",
     "rarity_tier": "uncommon",
-    "coin_value": 25,
+    "coin_value": 75,
 }
 
 
@@ -66,8 +66,8 @@ def test_scored_capture_pays_its_coin_value(monkeypatch, client, credits):
 
     body = client.post("/captures/detect-and-store", files=PHOTO).json()
 
-    assert body["coins_awarded"] == 25
-    assert credits == [{"user_id": USER_ID, "amount": 25, "reason": "capture:uncommon"}]
+    assert body["coins_awarded"] == 75
+    assert credits == [{"user_id": USER_ID, "amount": 75, "reason": "capture:uncommon"}]
 
 
 def test_unknown_rarity_pays_nothing(monkeypatch, client, credits):

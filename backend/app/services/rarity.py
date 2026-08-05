@@ -44,12 +44,25 @@ RARE_BELOW = 20_000
 UNCOMMON_BELOW = 200_000
 
 
+# Payouts. The spread between common and legendary matters more than any single number:
+# it decides how a walk that turns up nothing rare feels. The first cut was 5/25/100/500,
+# a 100x spread, which made one lucky find worth a hundred ordinary captures -- an hour
+# of sparrows and pigeons read as wasted. At 20x, ten commons (250) is half a legendary,
+# so an ordinary walk clearly pays while a legendary is still an event.
+#
+# These only mean something against Person D's shop prices. If the catalog lands and
+# everything is trivially affordable, adjust here and there together, not just here.
+COIN_VALUES = {"legendary": 500, "rare": 200, "uncommon": 75, "common": 25}
+
+
 def score_rarity(occurrence_count: int, iucn_status: str) -> tuple[str, int]:
     """Returns (rarity_tier, coin_value)."""
     if iucn_status in SENSITIVE_STATUSES or occurrence_count < LEGENDARY_BELOW:
-        return "legendary", 500
-    if occurrence_count < RARE_BELOW:
-        return "rare", 100
-    if occurrence_count < UNCOMMON_BELOW:
-        return "uncommon", 25
-    return "common", 5
+        tier = "legendary"
+    elif occurrence_count < RARE_BELOW:
+        tier = "rare"
+    elif occurrence_count < UNCOMMON_BELOW:
+        tier = "uncommon"
+    else:
+        tier = "common"
+    return tier, COIN_VALUES[tier]

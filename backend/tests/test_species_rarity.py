@@ -33,7 +33,7 @@ def test_lookup_triggered_and_scored(monkeypatch):
 
     assert calls == {"gbif": 1, "iucn": 1}  # the hand-off fires both lookups
     assert out["rarity_tier"] == "rare"  # 500 occurrences -> rare
-    assert out["coin_value"] == 100
+    assert out["coin_value"] == 200
     assert out["species_id"] == "Passer domesticus"
     assert out["common_name"] == "House Sparrow"
 
@@ -65,6 +65,17 @@ def test_sensitive_status_is_legendary(monkeypatch):
     assert out["iucn_status"] == "EN"
     assert out["rarity_tier"] == "legendary"
     assert out["coin_value"] == 500
+
+
+def test_payout_spread_stays_playable(monkeypatch):
+    # The gap between the cheapest and dearest capture is a balance decision, not an
+    # accident. At 100x, a walk that turned up nothing rare felt wasted. Pinning it here
+    # so a future threshold tweak can't quietly widen it again.
+    from app.services import rarity as rarity_module
+
+    values = rarity_module.COIN_VALUES
+    assert values["legendary"] / values["common"] == 20
+    assert values["common"] * 10 > values["rare"]  # ten ordinary captures beat one rare
 
 
 def test_locally_rare_species_is_legendary(monkeypatch):

@@ -84,9 +84,13 @@ Two questions to GBIF:
 | Situation | Tier | Coins |
 | --- | --- | --- |
 | Endangered (VU/EN/CR), **or** fewer than 100 US sightings | Legendary | 500 |
-| Under 20,000 US sightings | Rare | 100 |
-| Under 200,000 US sightings | Uncommon | 25 |
-| Everything else | Common | 5 |
+| Under 20,000 US sightings | Rare | 200 |
+| Under 200,000 US sightings | Uncommon | 75 |
+| Everything else | Common | 25 |
+
+**Why common pays 25 and not 5.** The gap between cheapest and dearest matters more than any single number, because it decides how a walk that turns up nothing rare feels. At the original 5 and 500, one lucky find was worth a hundred ordinary captures — an hour of sparrows and pigeons read as wasted. At 25 and 500 the gap is 20×, so ten ordinary captures (250) come to half a legendary. The walk pays; the legendary is still an event.
+
+These numbers only mean something against shop prices. If items turn out trivially affordable, both sides move together.
 
 **Where those numbers came from.** We checked ten real species against what a player would expect. The first attempt used 10 / 100 / 1,000 and everything came out common — real sighting counts are much bigger than that, running from 7 to 24 million. The boundaries had to be spread out to match:
 
