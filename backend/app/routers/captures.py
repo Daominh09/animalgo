@@ -1,9 +1,15 @@
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import get_db
 from app.dependencies.auth import get_current_user_id
+from app.routers.wallet import credit_wallet
 from app.services import geoprivacy, species, storage, vision
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/captures", tags=["captures"])
 
@@ -25,6 +31,7 @@ async def detect_and_store(
     lat: float | None = None,
     lng: float | None = None,
     user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
 ):
     """Identify the animal in a photo, store the photo, and score how rare it is.
 
@@ -66,10 +73,37 @@ async def detect_and_store(
     # return the raw lat/lng, and do not log them.
     location = geoprivacy.fuzz_coordinates(lat, lng)
 
+    # Hand-off out to Person D: pay the player. Only a scored capture pays -- unknown
+    # rarity has no coin value, and inventing one would mint currency out of a failed
+    # lookup. credit_wallet is called directly rather than over HTTP, deliberately: it
+    # has no route, so a player cannot call it themselves.
+    #
+    # Failures here are logged and swallowed rather than raised. The photo is already in
+    # R2 by this point, so a 500 would leave the player with a stored capture, no coins,
+    # and an error screen -- and their retry would re-run vision and re-upload. Better to
+    # return the capture and report coins_awarded: null, which is true and visible.
+    coins_awarded = None
+    if rarity_result is not None:
+        try:
+            await credit_wallet(
+                db,
+                uuid.UUID(user_id),
+                rarity_result["coin_value"],
+                f"capture:{rarity_result['rarity_tier']}",
+            )
+            coins_awarded = rarity_result["coin_value"]
+        except Exception:  # noqa: BLE001
+            logger.exception("wallet credit failed for user %s", user_id)
+
+    # KNOWN GAP, for Person A: this endpoint is not idempotent. Once the offline queue
+    # and upload retry land, the same photo re-POSTed pays out again -- there is no
+    # capture row yet to deduplicate against. The fix belongs with the Capture write:
+    # a client-supplied idempotency key, or a unique constraint on (owner, image hash).
     return {
         **result,
         "image_url": image_url,
         "object_key": object_key,
         "rarity": rarity_result,
         "location": location,
+        "coins_awarded": coins_awarded,
     }

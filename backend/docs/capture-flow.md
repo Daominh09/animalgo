@@ -11,7 +11,8 @@ What happens between a player tapping the shutter and getting points back.
 3. We ask GBIF (a wildlife database) how often that animal is seen in the US, and how endangered it is.
 4. Those two numbers decide how rare it is, and how many coins it's worth.
 5. We blur where the photo was taken, always, before saving anything.
-6. If we can't work out any of this, we say **"unknown"** — we never guess.
+6. The coins go into the player's wallet.
+7. If we can't work out any of this, we say **"unknown"** — we never guess, and we don't pay.
 
 ---
 
@@ -42,7 +43,11 @@ flowchart TD
     Z --> Q
 
     Q["Blur the location<br/>to a ~11 km area"]
-    Q --> M["Send result back to the app"]
+    Q --> W{"Did we get a score?"}
+    W -- "yes" --> X["Pay the coins<br/>into the wallet"]
+    W -- "no" --> Y["Pay nothing"]
+    X --> M["Send result back to the app"]
+    Y --> M
 ```
 
 ---
@@ -120,6 +125,22 @@ Photos **a**, **b** and **c** were taken in three different places. All three pu
 
 **This happens before saving, not when displaying.** Once a real coordinate is written to the database it's in every backup and export from then on, and deleting it later doesn't un-leak it. So the exact location is thrown away up front and never stored.
 
+### 7. Paying the player
+
+The coins from step 4 go straight into the player's wallet, and the response says how many:
+
+```json
+"coins_awarded": 25
+```
+
+**Only a scored capture pays.** If rarity came back unknown, `coins_awarded` is `null` and the wallet isn't touched. That's not a detail — an unlooked-up species reads as *legendary*, so paying on unknown would hand out 500 coins every time GBIF hiccuped.
+
+**Paying can't be done over the internet.** There's no `POST /wallet/credit` route; the backend calls the function directly. If players could reach it, they'd pay themselves.
+
+**A failed payment doesn't fail the capture.** By this point the photo is already stored, so erroring out would cost the player the capture *and* the coins, and their retry would redo the whole thing. Instead the capture comes back normally with `coins_awarded: null` — which is honest, and visible in the app.
+
+> **Known gap, for Person A.** Sending the same photo twice pays twice. There's no capture record yet to recognise a repeat, so once upload-retry and the offline queue land, a retried upload will pay again. The fix belongs with the capture record: either the app sends a one-time key with each capture, or the database refuses two captures with the same image.
+
 ---
 
 ## When we don't know
@@ -159,7 +180,8 @@ curl -X POST \
   "image_url": "...",
   "rarity": { "gbif_occurrence_count": 17532959, "iucn_status": "LC",
               "rarity_tier": "common", "coin_value": 5 },
-  "location": { "lat": 39.85, "lng": -98.45 }
+  "location": { "lat": 39.85, "lng": -98.45 },
+  "coins_awarded": 5
 }
 ```
 
@@ -187,7 +209,7 @@ pytest tests/test_species_rarity.py -v
 
 **The AI sometimes gives a group name instead of a species.** We've seen `Troglodytidae` (a whole bird family) instead of one species. Families have far more sightings than a single animal, so those score as more common than they should. Known and accepted for now.
 
-**Nothing is saved to the player's collection yet.** Rarity is calculated and handed back, but writing the capture record is the next piece of work.
+**Nothing is saved to the player's collection yet.** Rarity is calculated, the coins are paid, and both are handed back — but writing the capture record is the next piece of work. Until it lands, the wallet grows while the Collection screen stays empty.
 
 **The map is approximate for everyone.** Blurring every capture means no pin is ever exact, including common animals. That's the deliberate trade: it's a prototype, and a rule with no exceptions is worth more than a clever one that can be got wrong. If playtesting shows the map feels too vague, the square size is one number in `geoprivacy.py`.
 
