@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { apiFetch } from "./client";
+import { MOCK_CAPTURES } from "./mockCaptures";
 import { useAppStore } from "../store/useAppStore";
 
 // Owner: Person B — Rarity Engine & Collection
@@ -24,7 +25,14 @@ export interface Capture {
   captured_at: string;
 }
 
-/** The player's captures, rarest first. Disabled until there is a token to send. */
+/** The player's captures, rarest first.
+ *
+ * Falls back to mock captures when nobody is signed in. Person D's sign-in flow is what
+ * sets the token, and until it exists a real request could only 401 -- so the screens
+ * would have nothing to render and no way to be worked on. `isMock` is returned rather
+ * than hidden, so the UI can say so; silently showing fake data as real is how a broken
+ * fetch ends up looking like an empty collection.
+ */
 export function useCollection() {
   const accessToken = useAppStore((s) => s.accessToken);
 
@@ -36,5 +44,15 @@ export function useCollection() {
     enabled: Boolean(accessToken),
   });
 
-  return { ...query, signedOut: !accessToken };
+  if (!accessToken) {
+    return {
+      ...query,
+      data: MOCK_CAPTURES,
+      isPending: false,
+      isError: false,
+      isMock: true,
+      signedOut: true,
+    };
+  }
+  return { ...query, isMock: false, signedOut: false };
 }

@@ -58,14 +58,12 @@ function Centered({ title, detail, action }: { title: string; detail?: string; a
 }
 
 export default function CollectionScreen() {
-  const { data, isPending, isError, error, refetch, isRefetching, signedOut } = useCollection();
+  const { data, isPending, isError, error, refetch, isRefetching, isMock } = useCollection();
 
   const captures = data ?? [];
-  const subtitle = signedOut
-    ? "Not signed in"
-    : isPending
-      ? "Loading…"
-      : `${captures.length} ${captures.length === 1 ? "capture" : "captures"}`;
+  const subtitle = isPending
+    ? "Loading…"
+    : `${captures.length} ${captures.length === 1 ? "capture" : "captures"}${isMock ? " · mock data" : ""}`;
 
   return (
     <SafeAreaView className="flex-1 bg-slate-50" edges={["top"]}>
@@ -74,12 +72,7 @@ export default function CollectionScreen() {
         <Text className="text-sm text-slate-500">{subtitle}</Text>
       </View>
 
-      {signedOut ? (
-        <Centered
-          title="Sign in to see your collection."
-          detail="Your captures are tied to your account."
-        />
-      ) : isPending ? (
+      {isPending ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator />
         </View>
