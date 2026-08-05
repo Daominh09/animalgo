@@ -1,20 +1,33 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, Image, FlatList, ActivityIndicator, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { router, useLocalSearchParams } from "expo-router";
 
 import { useCollection, type Capture } from "@/api/collection";
+import { GRID_COLUMNS, rowIndexFor } from "@/captures";
 import { rarityMeta } from "@/rarity";
 
 // Owner: Person B — Rarity Engine & Collection
 // Week 2: real captures from GET /collection, rarest first (the backend does the
 // ordering, so the grid renders the list as given).
+//
+// Accepts a `highlight` param — the Map screen's "View in Collection" sends a capture id
+// here, and the grid scrolls to that card and rings it.
 
-function CaptureCard({ capture }: { capture: Capture }) {
+/** How long the ring stays before fading out. Long enough to find the card after the
+ *  scroll settles, short enough that it doesn't look like permanent selection state. */
+const HIGHLIGHT_MS = 3000;
+
+function CaptureCard({ capture, highlighted }: { capture: Capture; highlighted: boolean }) {
   const meta = rarityMeta(capture.rarity_tier);
   const [failed, setFailed] = useState(false);
 
   return (
-    <View className={`flex-1 m-1.5 rounded-2xl border-2 bg-white p-3 ${meta.ringClass}`}>
+    <View
+      className={`flex-1 m-1.5 rounded-2xl border-2 bg-white p-3 ${
+        highlighted ? "border-slate-900 bg-slate-50" : meta.ringClass
+      }`}
+    >
       {/* The photo the player took. Falls back to a neutral placeholder if the image
           can't load, so a broken R2 URL never shows an empty box. */}
       {failed || !capture.image_url ? (
@@ -59,8 +72,52 @@ function Centered({ title, detail, action }: { title: string; detail?: string; a
 
 export default function CollectionScreen() {
   const { data, isPending, isError, error, refetch, isRefetching, isMock } = useCollection();
+  const { highlight } = useLocalSearchParams<{ highlight?: string }>();
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const listRef = useRef<FlatList<Capture>>(null);
 
   const captures = data ?? [];
+
+  useEffect(() => {
+    if (!highlight) return;
+    const index = captures.findIndex((c) => c.id === highlight);
+    // The capture may not be here — an id from a stale link, or a row that has since
+    // been removed. Clear the param and leave the grid alone rather than scrolling
+    // somewhere arbitrary.
+    if (index === -1) {
+      router.setParams({ highlight: undefined });
+      return;
+    }
+
+    setHighlightedId(highlight);
+    // Row index, not item index — see rowIndexFor. Passing the item index throws
+    // "scrollToIndex out of range" for anything past the halfway point of the grid.
+    listRef.current?.scrollToIndex({ index: rowIndexFor(index), animated: true, viewPosition: 0.5 });
+
+    // Cleared immediately so tapping the same capture from the map a second time
+    // re-triggers this effect. Leaving the param set would make the second tap a no-op.
+    router.setParams({ highlight: undefined });
+
+    const timer = setTimeout(() => setHighlightedId(null), HIGHLIGHT_MS);
+    return () => clearTimeout(timer);
+    // captures is intentionally not a dependency: it changes identity on every refetch,
+    // which would re-scroll and re-ring the card while the player is reading it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlight]);
+
+  // Cards are variable height, so there's no getItemLayout and scrollToIndex can fire
+  // before the target row has been measured. Jump to an estimate, then retry once the
+  // list has rendered past it. `index` here is already a row index, and
+  // averageItemLength is a row height, so they multiply directly.
+  const handleScrollFailed = useCallback(
+    ({ index, averageItemLength }: { index: number; averageItemLength: number }) => {
+      listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: true });
+      setTimeout(() => {
+        listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+      }, 250);
+    },
+    [],
+  );
   const subtitle = isPending
     ? "Loading…"
     : `${captures.length} ${captures.length === 1 ? "capture" : "captures"}${isMock ? " · mock data" : ""}`;
@@ -98,13 +155,22 @@ export default function CollectionScreen() {
         />
       ) : (
         <FlatList
+          ref={listRef}
           data={captures}
           keyExtractor={(item) => item.id}
-          numColumns={2}
+          // Same constant rowIndexFor uses. If these two ever disagree, scrollToIndex
+          // starts throwing "out of range" — which is exactly how it broke before.
+          numColumns={GRID_COLUMNS}
           onRefresh={refetch}
           refreshing={isRefetching}
+          onScrollToIndexFailed={handleScrollFailed}
           contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 24 }}
-          renderItem={({ item }) => <CaptureCard capture={item} />}
+          renderItem={({ item }) => (
+            <CaptureCard capture={item} highlighted={item.id === highlightedId} />
+          )}
+          // Without this the rows already rendered keep their old `highlighted` prop,
+          // because FlatList treats the renderItem closure as unchanged data.
+          extraData={highlightedId}
         />
       )}
     </SafeAreaView>
