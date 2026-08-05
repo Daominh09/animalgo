@@ -17,9 +17,11 @@ GEMINI_URL = (
 )
 
 SPECIES_ID_PROMPT = (
-    "Identify the animal species in this photo. If there is no animal, use "
-    '"none" as the species. Respond with a JSON object: '
-    '{"species": "<common name or none>", "confidence": <0-1 float>}'
+    "Identify the animal in this photo. If there is no animal, use \"none\". "
+    "Respond with a JSON object: "
+    '{"species": "<common name or none>", '
+    '"scientific_name": "<scientific (Latin) name, or none>", '
+    '"confidence": <0-1 float>}'
 )
 
 
@@ -57,5 +59,6 @@ async def identify_species(image_bytes: bytes, mime_type: str = "image/jpeg") ->
     parsed = json.loads(text)
     return {
         "species": parsed.get("species"),
+        "scientific_name": parsed.get("scientific_name"),
         "confidence": float(parsed.get("confidence", 0)),
     }
