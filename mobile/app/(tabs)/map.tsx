@@ -17,9 +17,10 @@ import { buildMapHtml, capturesToPins } from "@/map/mapHtml";
 // That means a refetch reloads the document, which is fine here: a collection changes
 // once per capture, not continuously, and it avoids a second messaging path to maintain.
 //
-// IMPORTANT: do not import @maplibre/maplibre-react-native here. It is a native module
-// Expo Go cannot load, and Expo Router eagerly loads every route file — so that import
-// crashes the whole app on startup, not just this tab.
+// IMPORTANT: do not add @maplibre/maplibre-react-native back. It is a native module
+// Expo Go cannot load, and Expo Router eagerly loads every route file — so importing it
+// crashes the whole app on startup, not just this tab. It has been removed from
+// package.json; it was never imported, only carried.
 
 export default function MapScreen() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -50,13 +51,19 @@ export default function MapScreen() {
     try {
       msg = JSON.parse(raw);
     } catch {
-      setStatus("error");
+      // Same rule as below: a malformed message is a bug worth surfacing while the map
+      // is loading, but not a reason to cover a map that already works.
+      setStatus((s) => (s === "loading" ? "error" : s));
       return;
     }
     if (msg.type === "ready") setStatus("ready");
     else if (msg.type === "select" && msg.id) setSelectedId(msg.id);
     else if (msg.type === "deselect") setSelectedId(null);
-    else setStatus("error");
+    // MapLibre reports recoverable problems (a tile that failed to load) through the
+    // same channel, so only treat one as fatal while the map is still loading. Latching
+    // afterwards covered a working map with a "couldn't load" overlay until the WebView
+    // happened to remount.
+    else if (msg.type === "error") setStatus((s) => (s === "loading" ? "error" : s));
   }
   // Only rebuild the document when the pins or the framing actually change, so an
   // unrelated re-render doesn't tear the map down and reload the tiles.

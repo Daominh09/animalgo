@@ -172,8 +172,12 @@ export default function MapScreen() {
           const canvas = mapRef.current?.getCanvas();
           if (canvas) canvas.style.cursor = "";
         });
+        // MapLibre emits `error` for recoverable things too — a single tile failing to
+        // load, for instance. Only treat it as fatal if the map never finished loading.
+        // Latching after "ready" put a "couldn't load the map" overlay over a working
+        // map, and froze pin updates, since the sync effect below waits for "ready".
         map.on("error", () => {
-          if (!cancelled) setStatus("error");
+          if (!cancelled) setStatus((s) => (s === "loading" ? "error" : s));
         });
       } catch {
         if (!cancelled) setStatus("error");

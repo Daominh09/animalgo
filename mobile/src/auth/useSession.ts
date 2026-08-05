@@ -17,6 +17,11 @@ import { useAppStore } from "../store/useAppStore";
 
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** How long to wait before retrying a refresh that couldn't reach the server. Without
+ *  it, a failed refresh returns the same already-expiring session and the next delay
+ *  clamps to its 1s floor — a retry every second for as long as the device is offline. */
+const RETRY_MS = 30_000;
+
 /** Publishes a session (or the absence of one) to the store and arms the next refresh. */
 function apply(next: session.Session | null): void {
   const { setAccessToken, setUser } = useAppStore.getState();
@@ -27,13 +32,13 @@ function apply(next: session.Session | null): void {
   refreshTimer = null;
   if (!next) return;
 
-  // Refresh shortly before expiry rather than waiting for a request to fail. Clamped to
-  // a positive delay: an already-expired session would otherwise schedule in the past
-  // and fire immediately, over and over.
-  const delay = Math.max(1_000, next.expires_at - Date.now() - 60_000);
+  // Refresh shortly before expiry rather than waiting for a request to fail. A session
+  // that is already expiring means the last refresh couldn't reach the server, so back
+  // off instead of hammering it.
+  const delay = session.isExpiring(next) ? RETRY_MS : next.expires_at - Date.now() - 60_000;
   refreshTimer = setTimeout(async () => {
     apply(await session.refresh(next));
-  }, delay);
+  }, Math.max(1_000, delay));
 }
 
 /** Restores the stored session at startup, refreshing it first if it went stale while

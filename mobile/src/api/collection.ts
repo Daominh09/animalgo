@@ -35,12 +35,16 @@ export interface Capture {
  */
 export function useCollection() {
   const accessToken = useAppStore((s) => s.accessToken);
+  const userId = useAppStore((s) => s.userId);
 
   return useQuery<Capture[]>({
-    // The token is part of the key so switching accounts doesn't serve the previous
-    // player's captures out of the cache.
-    queryKey: ["collection", accessToken],
+    // Keyed on the user, NOT the token. Both keep one player's captures out of another's
+    // cache, but the token is replaced every hour by the background refresh — so keying
+    // on it minted a new cache entry hourly, dropping the Collection grid to a spinner
+    // and emptying the Map's pins for no reason. The user id only changes when the
+    // player actually does.
+    queryKey: ["collection", userId],
     queryFn: () => apiFetch("/collection", {}, accessToken ?? undefined),
-    enabled: Boolean(accessToken),
+    enabled: Boolean(accessToken && userId),
   });
 }

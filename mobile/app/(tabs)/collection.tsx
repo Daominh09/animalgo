@@ -117,13 +117,20 @@ export default function CollectionScreen() {
     // Cleared immediately so tapping the same capture from the map a second time
     // re-triggers this effect. Leaving the param set would make the second tap a no-op.
     router.setParams({ highlight: undefined });
-
-    const timer = setTimeout(() => setHighlightedId(null), HIGHLIGHT_MS);
-    return () => clearTimeout(timer);
     // captures is intentionally not a dependency: it changes identity on every refetch,
     // which would re-scroll and re-ring the card while the player is reading it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlight]);
+
+  // The fade-out lives in its own effect, keyed on the ring rather than on the param.
+  // Arming it above did not work: clearing `highlight` in that same effect changed its
+  // dependency, React ran the cleanup, and the timer was cancelled the instant it was
+  // set — so the ring never faded and looked like permanent selection state.
+  useEffect(() => {
+    if (!highlightedId) return;
+    const timer = setTimeout(() => setHighlightedId(null), HIGHLIGHT_MS);
+    return () => clearTimeout(timer);
+  }, [highlightedId]);
 
   // Cards are variable height, so there's no getItemLayout and scrollToIndex can fire
   // before the target row has been measured. Jump to an estimate, then retry once the

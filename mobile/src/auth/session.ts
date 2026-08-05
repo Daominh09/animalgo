@@ -89,8 +89,22 @@ export async function register(email: string, password: string): Promise<Session
   return session;
 }
 
-/** Trades the refresh token for a new session. Returns null if the refresh token is no
- *  longer valid, which means the player has to sign in again. */
+/** True when the server actively rejected the refresh token, as opposed to the request
+ *  never getting an answer. apiFetch throws "API error <status>: <body>". */
+function wasRejected(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /API error 4\d\d/.test(message);
+}
+
+/**
+ * Trades the refresh token for a new session.
+ *
+ * Returns null only when the server says the token is no longer valid — that genuinely
+ * means signing in again. A network failure keeps the stored session and returns it
+ * unchanged: the refresh runs hourly in the background, so treating an offline moment
+ * as a rejection would sign players out for going through a tunnel, and would throw away
+ * a refresh token that was still perfectly good.
+ */
 export async function refresh(session: Session): Promise<Session | null> {
   try {
     const next = toSession(
@@ -101,8 +115,12 @@ export async function refresh(session: Session): Promise<Session | null> {
     );
     await save(next);
     return next;
-  } catch {
-    await clear();
-    return null;
+  } catch (error) {
+    if (wasRejected(error)) {
+      await clear();
+      return null;
+    }
+    // Couldn't reach the server. Keep what we have and let the next attempt try again.
+    return session;
   }
 }
