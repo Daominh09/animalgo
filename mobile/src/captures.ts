@@ -25,10 +25,10 @@ export function rowIndexFor(itemIndex: number, columns: number = GRID_COLUMNS): 
  * Captures in the order the backend returns them: rarest first, newest first within a
  * tier, unknown rarity last.
  *
- * This mirrors `get_collection` in backend/app/routers/collection.py. It exists so mock
- * data is ordered the way real data is — the tier ranks come from RARITY_META, which is
- * the same set of numbers the backend's TIER_ORDER uses. Real API responses are already
- * sorted and are NOT re-sorted here: the backend stays the single authority on ordering.
+ * This mirrors `get_collection` in backend/app/routers/collection.py — the tier ranks in
+ * RARITY_META are the same numbers the backend's TIER_ORDER uses. API responses arrive
+ * already sorted and are NOT re-sorted, so the backend stays the single authority on
+ * ordering; this exists for any list the client assembles itself.
  */
 export function sortCaptures(captures: Capture[]): Capture[] {
   return [...captures].sort((a, b) => {

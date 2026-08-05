@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 
 import { useCollection, type Capture } from "@/api/collection";
+import { signOut } from "@/auth/useSession";
 import { GRID_COLUMNS, rowIndexFor } from "@/captures";
 import { rarityMeta } from "@/rarity";
 
@@ -90,7 +91,7 @@ function Centered({ title, detail, action }: { title: string; detail?: string; a
 }
 
 export default function CollectionScreen() {
-  const { data, isPending, isError, error, refetch, isRefetching, isMock } = useCollection();
+  const { data, isPending, isError, error, refetch, isRefetching } = useCollection();
   const { highlight } = useLocalSearchParams<{ highlight?: string }>();
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const listRef = useRef<FlatList<Capture>>(null);
@@ -139,13 +140,21 @@ export default function CollectionScreen() {
   );
   const subtitle = isPending
     ? "Loading…"
-    : `${captures.length} ${captures.length === 1 ? "capture" : "captures"}${isMock ? " · mock data" : ""}`;
+    : `${captures.length} ${captures.length === 1 ? "capture" : "captures"}`;
 
   return (
     <SafeAreaView className="flex-1 bg-slate-50" edges={["top"]}>
-      <View className="px-4 pb-2 pt-3">
-        <Text className="text-2xl font-bold text-slate-900">Collection</Text>
-        <Text className="text-sm text-slate-500">{subtitle}</Text>
+      <View className="flex-row items-start justify-between px-4 pb-2 pt-3">
+        <View>
+          <Text className="text-2xl font-bold text-slate-900">Collection</Text>
+          <Text className="text-sm text-slate-500">{subtitle}</Text>
+        </View>
+
+        {/* Sign out lives here for now because Collection is the only screen that is
+            clearly "yours". It belongs on a profile screen once one exists. */}
+        <Pressable onPress={() => signOut()} hitSlop={10} className="pt-1">
+          <Text className="text-sm text-slate-500">Sign out</Text>
+        </Pressable>
       </View>
 
       {isPending ? (

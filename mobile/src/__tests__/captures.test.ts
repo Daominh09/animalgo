@@ -1,4 +1,3 @@
-import { MOCK_CAPTURES } from "../api/mockCaptures";
 import type { Capture } from "../api/collection";
 import { GRID_COLUMNS, rowIndexFor, sortCaptures } from "../captures";
 import { boundsFor, capturesToPins, computeBounds } from "../map/mapHtml";
@@ -85,32 +84,6 @@ describe("sortCaptures", () => {
     const input = [capture({ id: "c", rarity_tier: "common" }), capture({ id: "l", rarity_tier: "legendary" })];
     sortCaptures(input);
     expect(input.map((c) => c.id)).toEqual(["c", "l"]);
-  });
-});
-
-// --- the mock matching the database ---------------------------------------------------
-
-describe("MOCK_CAPTURES", () => {
-  it("is in the order the API would return it", () => {
-    expect(MOCK_CAPTURES).toEqual(sortCaptures(MOCK_CAPTURES));
-  });
-
-  it("uses UUID-shaped ids, as the backend does", () => {
-    for (const c of MOCK_CAPTURES) {
-      expect(c.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    }
-  });
-
-  it("only uses tiers the backend can actually produce", () => {
-    const real = ["legendary", "rare", "uncommon", "common", null];
-    for (const c of MOCK_CAPTURES) {
-      expect(real).toContain(c.rarity_tier);
-    }
-  });
-
-  it("covers the states most likely to be mishandled", () => {
-    expect(MOCK_CAPTURES.some((c) => c.rarity_tier === null)).toBe(true);
-    expect(MOCK_CAPTURES.some((c) => c.lat === null && c.lng === null)).toBe(true);
   });
 });
 

@@ -25,7 +25,7 @@ export default function MapScreen() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
-  const { data, isPending, isMock } = useCollection();
+  const { data, isPending } = useCollection();
   const { focus } = useLocalSearchParams<{ focus?: string }>();
 
   // A capture id arriving from the Collection screen. Held in state and the param
@@ -66,7 +66,7 @@ export default function MapScreen() {
     ? "Loading captures…"
     : pins.length === 0
       ? "No captures with a location yet"
-      : `${pins.length} ${pins.length === 1 ? "capture" : "captures"} · approximate${isMock ? " · mock data" : ""}`;
+      : `${pins.length} ${pins.length === 1 ? "capture" : "captures"} · approximate`;
 
   return (
     <View className="flex-1 bg-slate-50">

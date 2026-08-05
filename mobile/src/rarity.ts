@@ -1,8 +1,7 @@
 // Owner: Person B — Rarity Engine & Collection
 //
 // Rarity presentation, shared by the Collection and Map screens. Mirrors the backend's
-// four tiers (app/services/rarity.py). Lives outside src/mock/ because it is real UI
-// metadata, not stand-in data.
+// four tiers (app/services/rarity.py).
 //
 // `null` is a fifth case and not an error: the backend returns rarity_tier: null when a
 // species could not be looked up. It means "unknown", NOT "common" — showing it as
