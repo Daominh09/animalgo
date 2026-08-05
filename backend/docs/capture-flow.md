@@ -129,6 +129,8 @@ curl -X POST \
 
 A login token is required, and the photo really is stored — this is the production path, not a shortcut.
 
+To get that token in a few seconds, see [dev-auth.md](dev-auth.md).
+
 To check the scoring rules on their own without a photo, the tests cover every case
 (`tests/test_species_rarity.py`), and they run without network or a database:
 
