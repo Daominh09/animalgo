@@ -18,9 +18,20 @@ import { rarityMeta } from "@/rarity";
  *  scroll settles, short enough that it doesn't look like permanent selection state. */
 const HIGHLIGHT_MS = 3000;
 
-function CaptureCard({ capture, highlighted }: { capture: Capture; highlighted: boolean }) {
+function CaptureCard({
+  capture,
+  highlighted,
+  onShowOnMap,
+}: {
+  capture: Capture;
+  highlighted: boolean;
+  onShowOnMap: () => void;
+}) {
   const meta = rarityMeta(capture.rarity_tier);
   const [failed, setFailed] = useState(false);
+  // A capture with no coordinates has nowhere to go on the map. Rather than navigate to
+  // a map that can't show it, the affordance simply isn't offered.
+  const mappable = capture.lat !== null && capture.lng !== null;
 
   return (
     <View
@@ -52,8 +63,16 @@ function CaptureCard({ capture, highlighted }: { capture: Capture; highlighted: 
         {new Date(capture.captured_at).toLocaleDateString()}
       </Text>
 
-      <View className={`mt-2 self-start rounded-full px-2 py-0.5 ${meta.badgeClass}`}>
-        <Text className={`text-xs font-medium ${meta.badgeClass}`}>{meta.label}</Text>
+      <View className="mt-2 flex-row items-center justify-between">
+        <View className={`self-start rounded-full px-2 py-0.5 ${meta.badgeClass}`}>
+          <Text className={`text-xs font-medium ${meta.badgeClass}`}>{meta.label}</Text>
+        </View>
+
+        {mappable ? (
+          <Pressable onPress={onShowOnMap} hitSlop={10}>
+            <Text className="text-xs font-medium text-slate-500">Map →</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -166,7 +185,13 @@ export default function CollectionScreen() {
           onScrollToIndexFailed={handleScrollFailed}
           contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 24 }}
           renderItem={({ item }) => (
-            <CaptureCard capture={item} highlighted={item.id === highlightedId} />
+            <CaptureCard
+              capture={item}
+              highlighted={item.id === highlightedId}
+              onShowOnMap={() =>
+                router.push({ pathname: "/(tabs)/map", params: { focus: item.id } })
+              }
+            />
           )}
           // Without this the rows already rendered keep their old `highlighted` prop,
           // because FlatList treats the renderItem closure as unchanged data.

@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { View, Text, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
+import { router, useLocalSearchParams } from "expo-router";
 
 import { useCollection } from "@/api/collection";
 import { CaptureCallout } from "@/map/CaptureCallout";
@@ -23,7 +24,19 @@ import { buildMapHtml, capturesToPins } from "@/map/mapHtml";
 export default function MapScreen() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
   const { data, isPending, isMock } = useCollection();
+  const { focus } = useLocalSearchParams<{ focus?: string }>();
+
+  // A capture id arriving from the Collection screen. Held in state and the param
+  // cleared, so returning to this tab later doesn't re-frame the same capture, and so
+  // asking for the same one twice works instead of being a no-op.
+  useEffect(() => {
+    if (!focus) return;
+    setFocusId(focus);
+    setSelectedId(focus);
+    router.setParams({ focus: undefined });
+  }, [focus]);
 
   const pins = useMemo(() => capturesToPins(data ?? []), [data]);
   // Looked up by id rather than stored as an object, so a refetch that changes a
@@ -45,9 +58,9 @@ export default function MapScreen() {
     else if (msg.type === "deselect") setSelectedId(null);
     else setStatus("error");
   }
-  // Only rebuild the document when the pins actually change, so an unrelated re-render
-  // doesn't tear the map down and reload the tiles.
-  const html = useMemo(() => buildMapHtml(pins), [pins]);
+  // Only rebuild the document when the pins or the framing actually change, so an
+  // unrelated re-render doesn't tear the map down and reload the tiles.
+  const html = useMemo(() => buildMapHtml(pins, focusId), [pins, focusId]);
 
   const label = isPending
     ? "Loading captures…"
@@ -58,9 +71,11 @@ export default function MapScreen() {
   return (
     <View className="flex-1 bg-slate-50">
       <WebView
-        // Reloads when the pins change; the key keeps that tied to the data, not to
-        // every render.
-        key={html.length}
+        // Reloads when the pins or the framing change, and only then. Keyed on the
+        // actual inputs rather than html.length, which two different documents can
+        // easily share — changing which pin is framed swaps coordinates of the same
+        // width, so the length would not move and the map would never re-frame.
+        key={`${pins.map((p) => p.id).join(",")}|${focusId ?? ""}`}
         originWhitelist={["*"]}
         source={{ html }}
         onMessage={(e) => handleMessage(e.nativeEvent.data)}
@@ -90,7 +105,18 @@ export default function MapScreen() {
         </View>
       </SafeAreaView>
 
-      {selected && <CaptureCallout capture={selected} onClose={() => setSelectedId(null)} />}
+      {selected && (
+        <CaptureCallout
+          capture={selected}
+          onClose={() => setSelectedId(null)}
+          onViewInCollection={() => {
+            // Close first: coming back to the Map tab should show the map, not a card
+            // left open over it from a previous visit.
+            setSelectedId(null);
+            router.push({ pathname: "/(tabs)/collection", params: { highlight: selected.id } });
+          }}
+        />
+      )}
     </View>
   );
 }

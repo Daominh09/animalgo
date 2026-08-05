@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, ActivityIndicator } from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
 
 import { useCollection } from "@/api/collection";
 import { CaptureCallout } from "@/map/CaptureCallout";
 import {
+  boundsFor,
   buildGeoJson,
   capturesToPins,
   CENTER,
-  computeBounds,
   FIT_OPTIONS,
   MAPLIBRE_CSS,
   MAPLIBRE_JS,
@@ -94,7 +95,20 @@ export default function MapScreen() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
   const { data, isPending, isMock } = useCollection();
+  const { focus } = useLocalSearchParams<{ focus?: string }>();
+
+  // A capture id arriving from the Collection screen. Held in state and the param
+  // cleared, so returning to this tab later doesn't re-frame the same capture, and so
+  // asking for the same one twice works instead of being a no-op.
+  useEffect(() => {
+    if (!focus) return;
+    setFocusId(focus);
+    setSelectedId(focus);
+    router.setParams({ focus: undefined });
+  }, [focus]);
+
   const pins = useMemo(() => capturesToPins(data ?? []), [data]);
   // Looked up by id rather than stored as an object, so a refetch shows the new version
   // instead of a stale copy, and a capture that disappears closes the card.
@@ -104,6 +118,8 @@ export default function MapScreen() {
   // would destroy the map and reload every tile on each refetch.
   const pinsRef = useRef(pins);
   pinsRef.current = pins;
+  const focusRef = useRef(focusId);
+  focusRef.current = focusId;
 
   useEffect(() => {
     let cancelled = false;
@@ -130,7 +146,7 @@ export default function MapScreen() {
           map?.addSource("captures", { type: "geojson", data: buildGeoJson(pinsRef.current) });
           map?.addLayer(PIN_LAYER);
           map?.addLayer(PIN_HIT_LAYER);
-          const bounds = computeBounds(pinsRef.current);
+          const bounds = boundsFor(pinsRef.current, focusRef.current);
           if (bounds) map?.fitBounds(bounds, FIT_OPTIONS);
           mapRef.current = map ?? null;
           setStatus("ready");
@@ -176,9 +192,9 @@ export default function MapScreen() {
   useEffect(() => {
     if (status !== "ready") return;
     mapRef.current?.getSource("captures")?.setData(buildGeoJson(pins));
-    const bounds = computeBounds(pins);
+    const bounds = boundsFor(pins, focusId);
     if (bounds) mapRef.current?.fitBounds(bounds, FIT_OPTIONS);
-  }, [pins, status]);
+  }, [pins, focusId, status]);
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -212,7 +228,18 @@ export default function MapScreen() {
         </View>
       </View>
 
-      {selected && <CaptureCallout capture={selected} onClose={() => setSelectedId(null)} />}
+      {selected && (
+        <CaptureCallout
+          capture={selected}
+          onClose={() => setSelectedId(null)}
+          onViewInCollection={() => {
+            // Close first: coming back to the Map tab should show the map, not a card
+            // left open over it from a previous visit.
+            setSelectedId(null);
+            router.push({ pathname: "/(tabs)/collection", params: { highlight: selected.id } });
+          }}
+        />
+      )}
     </View>
   );
 }

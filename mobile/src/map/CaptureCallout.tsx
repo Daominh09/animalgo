@@ -11,7 +11,15 @@ import { rarityMeta } from "../rarity";
 // WebView document and once for web, and they could not reuse the rarity badge styling
 // the Collection screen already has.
 
-export function CaptureCallout({ capture, onClose }: { capture: Capture; onClose: () => void }) {
+export function CaptureCallout({
+  capture,
+  onClose,
+  onViewInCollection,
+}: {
+  capture: Capture;
+  onClose: () => void;
+  onViewInCollection: () => void;
+}) {
   const meta = rarityMeta(capture.rarity_tier);
   const [failed, setFailed] = useState(false);
 
@@ -50,6 +58,14 @@ export function CaptureCallout({ capture, onClose }: { capture: Capture; onClose
           <Text className="mt-0.5 text-xs text-slate-400">
             Approximate area · {capture.lat?.toFixed(2)}, {capture.lng?.toFixed(2)}
           </Text>
+
+          <Pressable
+            onPress={onViewInCollection}
+            hitSlop={8}
+            className="mt-2 self-start rounded-full bg-slate-900 px-3 py-1.5"
+          >
+            <Text className="text-xs font-medium text-white">View in Collection →</Text>
+          </Pressable>
         </View>
 
         <Pressable onPress={onClose} hitSlop={12} className="ml-2 self-start">

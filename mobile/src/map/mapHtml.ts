@@ -69,6 +69,22 @@ export function computeBounds(pins: MapPin[]): [[number, number], [number, numbe
   ];
 }
 
+/**
+ * What the map should frame: one capture if the Collection screen asked for it,
+ * otherwise everything.
+ *
+ * An unknown or unmappable `focusId` falls back to all pins rather than returning null.
+ * Arriving from a card whose capture has since gone should still show a usable map, not
+ * an empty default view of Kansas.
+ */
+export function boundsFor(
+  pins: MapPin[],
+  focusId?: string | null,
+): [[number, number], [number, number]] | null {
+  const focused = focusId ? pins.filter((p) => p.id === focusId) : [];
+  return computeBounds(focused.length ? focused : pins);
+}
+
 /** GeoJSON for the capture pins layer. */
 export function buildGeoJson(pins: MapPin[] = []) {
   return {
@@ -108,13 +124,17 @@ export const PIN_HIT_LAYER = {
   },
 };
 
-/** Self-contained map document, used by the native WebView. */
-export function buildMapHtml(pins: MapPin[] = []): string {
+/** Self-contained map document, used by the native WebView.
+ *
+ * `focusId` is baked into the document rather than pushed over the bridge afterwards:
+ * the HTML is already rebuilt when the pins change, so framing one capture is the same
+ * mechanism, and it avoids a second messaging path for something that happens once. */
+export function buildMapHtml(pins: MapPin[] = [], focusId?: string | null): string {
   // JSON.stringify keeps injected data escaped — no raw interpolation into JS source.
   const data = JSON.stringify(buildGeoJson(pins));
   const layer = JSON.stringify(PIN_LAYER);
   const hitLayer = JSON.stringify(PIN_HIT_LAYER);
-  const bounds = JSON.stringify(computeBounds(pins));
+  const bounds = JSON.stringify(boundsFor(pins, focusId));
   const fit = JSON.stringify(FIT_OPTIONS);
 
   return `<!DOCTYPE html>
