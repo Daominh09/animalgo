@@ -21,7 +21,11 @@ class Capture(Base):
     __tablename__ = "captures"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    species_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    species_id: Mapped[str | None] = mapped_column(String, nullable=True)  # scientific name
+    # What the player is shown. Denormalised onto the capture for the same reason as
+    # rarity_tier: the card must keep saying what it said when the capture was made.
+    # Nullable because vision can identify only a family, which has no common name.
+    common_name: Mapped[str | None] = mapped_column(String, nullable=True)
     image_url: Mapped[str] = mapped_column(String)
     rarity_tier: Mapped[str | None] = mapped_column(String, nullable=True)
     lat: Mapped[float | None] = mapped_column(Float, nullable=True)

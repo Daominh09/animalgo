@@ -42,10 +42,11 @@ async def get_collection(
     return [
         {
             "id": str(c.id),
-            # The scientific name. The capture row has no common name yet -- Person A to
-            # add one with the Capture write, since the card should read "House Sparrow",
-            # not "Passer domesticus". Until then the app shows this.
-            "species_id": c.species_id,
+            # What the card shows. Null for rows written before common_name existed, and
+            # for identifications that only reached a family -- the app falls back to
+            # species_id then.
+            "common_name": c.common_name,
+            "species_id": c.species_id,  # scientific name
             "image_url": c.image_url,
             "rarity_tier": c.rarity_tier,
             "lat": c.lat,

@@ -5,7 +5,7 @@ import { router, useLocalSearchParams } from "expo-router";
 
 import { useCollection, type Capture } from "@/api/collection";
 import { signOut } from "@/auth/useSession";
-import { GRID_COLUMNS, rowIndexFor } from "@/captures";
+import { displayName, GRID_COLUMNS, rowIndexFor } from "@/captures";
 import { rarityMeta } from "@/rarity";
 
 // Owner: Person B — Rarity Engine & Collection
@@ -55,10 +55,10 @@ function CaptureCard({
         />
       )}
 
-      {/* Scientific name for now. Once the capture row carries a common name this
-          becomes the headline and the scientific name moves underneath. */}
-      <Text className="mt-2 font-semibold italic text-slate-900" numberOfLines={1}>
-        {capture.species_id ?? "Unidentified"}
+      {/* Common name only. The scientific name is what the rarity lookups needed, not
+          something a player wants to read on their card. */}
+      <Text className="mt-2 font-semibold text-slate-900" numberOfLines={1}>
+        {displayName(capture)}
       </Text>
       <Text className="text-xs text-slate-500" numberOfLines={1}>
         {new Date(capture.captured_at).toLocaleDateString()}

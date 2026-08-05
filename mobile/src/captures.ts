@@ -10,6 +10,20 @@ import { rarityMeta } from "./rarity";
 export const GRID_COLUMNS = 2;
 
 /**
+ * What to print on a card.
+ *
+ * Common name first: a player wants "House Sparrow", not "Passer domesticus". The
+ * scientific name is what the rarity engine needed, not what anyone wants to read.
+ *
+ * Falls back to it anyway, because some captures genuinely have no common name — vision
+ * sometimes identifies only a family ("Troglodytidae"), and rows written before the
+ * column existed have none. A wrong-looking name beats a blank card.
+ */
+export function displayName(capture: Pick<Capture, "common_name" | "species_id">): string {
+  return capture.common_name || capture.species_id || "Unidentified";
+}
+
+/**
  * FlatList row containing an item.
  *
  * A multi-column FlatList counts ROWS, not items: internally it groups `data` into

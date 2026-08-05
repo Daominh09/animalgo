@@ -15,11 +15,12 @@ from app.routers import collection
 USER_ID = "8f14e45f-ceea-467a-9c1e-1a1b2c3d4e5f"
 
 
-def _capture(tier, day, species="Passer domesticus"):
+def _capture(tier, day, species="Passer domesticus", common="House Sparrow"):
     return Capture(
         id=uuid.uuid4(),
         owner_id=uuid.UUID(USER_ID),
         species_id=species,
+        common_name=common,
         image_url="https://r2.test/photo.jpg",
         rarity_tier=tier,
         lat=39.85,
@@ -80,11 +81,26 @@ def test_empty_collection_is_an_empty_list():
     assert _client([]).get("/collection").json() == []
 
 
+def test_common_name_is_returned_for_the_card():
+    body = _client([_capture("common", 1, common="House Sparrow")]).get("/collection").json()
+
+    assert body[0]["common_name"] == "House Sparrow"
+    assert body[0]["species_id"] == "Passer domesticus"  # still there, for the detail view
+
+
+def test_missing_common_name_is_null_not_omitted():
+    # Rows written before common_name existed, and family-level identifications. The app
+    # falls back to species_id, so the key has to be present rather than absent.
+    body = _client([_capture("common", 1, species="Troglodytidae", common=None)]).get("/collection").json()
+
+    assert body[0]["common_name"] is None
+
+
 def test_card_carries_what_the_screen_needs():
     body = _client([_capture("rare", 1)]).get("/collection").json()
 
     assert set(body[0]) == {
-        "id", "species_id", "image_url", "rarity_tier",
+        "id", "common_name", "species_id", "image_url", "rarity_tier",
         "lat", "lng", "confidence_score", "confirmed_by_user", "captured_at",
     }
     # Already-fuzzed coordinates; nothing to strip here.

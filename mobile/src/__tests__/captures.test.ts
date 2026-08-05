@@ -1,5 +1,5 @@
 import type { Capture } from "../api/collection";
-import { GRID_COLUMNS, rowIndexFor, sortCaptures } from "../captures";
+import { displayName, GRID_COLUMNS, rowIndexFor, sortCaptures } from "../captures";
 import { boundsFor, capturesToPins, computeBounds } from "../map/mapHtml";
 import { rarityMeta } from "../rarity";
 
@@ -10,6 +10,7 @@ import { rarityMeta } from "../rarity";
 function capture(over: Partial<Capture> = {}): Capture {
   return {
     id: "id",
+    common_name: "House Sparrow",
     species_id: "Passer domesticus",
     image_url: "https://r2.test/p.jpg",
     rarity_tier: "common",
@@ -84,6 +85,31 @@ describe("sortCaptures", () => {
     const input = [capture({ id: "c", rarity_tier: "common" }), capture({ id: "l", rarity_tier: "legendary" })];
     sortCaptures(input);
     expect(input.map((c) => c.id)).toEqual(["c", "l"]);
+  });
+});
+
+// --- displayName ------------------------------------------------------------------------
+
+describe("displayName", () => {
+  it("shows the common name, not the scientific one", () => {
+    expect(displayName(capture())).toBe("House Sparrow");
+  });
+
+  it("falls back to the scientific name when there is no common name", () => {
+    // Vision sometimes identifies only a family, which has no common name. A card
+    // reading "Troglodytidae" is worse than one reading "House Sparrow" but far better
+    // than a blank one.
+    expect(displayName(capture({ common_name: null, species_id: "Troglodytidae" }))).toBe("Troglodytidae");
+  });
+
+  it("treats an empty common name as missing", () => {
+    // An empty string is falsy but would render as a blank card, so it must fall through
+    // rather than be shown.
+    expect(displayName(capture({ common_name: "" }))).toBe("Passer domesticus");
+  });
+
+  it("has something to show even when both names are missing", () => {
+    expect(displayName(capture({ common_name: null, species_id: null }))).toBe("Unidentified");
   });
 });
 
