@@ -32,10 +32,26 @@ def test_lookup_triggered_and_scored(monkeypatch):
     out = asyncio.run(species.resolve_species_rarity("Passer domesticus", "House Sparrow"))
 
     assert calls == {"gbif": 1, "iucn": 1}  # the hand-off fires both lookups
-    assert out["rarity_tier"] == "uncommon"  # 500 occurrences -> uncommon
-    assert out["coin_value"] == 25
+    assert out["rarity_tier"] == "rare"  # 500 occurrences -> rare
+    assert out["coin_value"] == 100
     assert out["species_id"] == "Passer domesticus"
     assert out["common_name"] == "House Sparrow"
+
+
+def test_every_tier_is_reachable_with_real_counts(monkeypatch):
+    # The first threshold set (10/100/1000) scored every unlisted species "common",
+    # because real US counts start in the tens of thousands. These are the actual
+    # numbers from the Week 2 spot-check, so a regression collapses the tiers again.
+    observed = [
+        (7, "legendary"),        # Eurasian Blackbird, a vagrant
+        (11_553, "rare"),        # Mountain Lion
+        (41_892, "uncommon"),    # American Black Bear
+        (24_852_472, "common"),  # Northern Cardinal
+    ]
+    for count, expected in observed:
+        _patch_lookups(monkeypatch, count=count, status="LC")
+        out = asyncio.run(species.resolve_species_rarity("Test species"))
+        assert out["rarity_tier"] == expected, count
 
 
 def test_sensitive_status_is_legendary(monkeypatch):

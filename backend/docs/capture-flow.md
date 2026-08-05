@@ -83,10 +83,25 @@ Two questions to GBIF:
 
 | Situation | Tier | Coins |
 | --- | --- | --- |
-| Endangered (VU/EN/CR), **or** fewer than 10 US sightings | Legendary | 500 |
-| Under 100 US sightings | Rare | 100 |
-| Under 1,000 US sightings | Uncommon | 25 |
+| Endangered (VU/EN/CR), **or** fewer than 100 US sightings | Legendary | 500 |
+| Under 20,000 US sightings | Rare | 100 |
+| Under 200,000 US sightings | Uncommon | 25 |
 | Everything else | Common | 5 |
+
+**Where those numbers came from.** We checked ten real species against what a player would expect. The first attempt used 10 / 100 / 1,000 and everything came out common — real sighting counts are much bigger than that, running from 7 to 24 million. The boundaries had to be spread out to match:
+
+| Animal | US sightings | Tier |
+| --- | --- | --- |
+| Eurasian Blackbird (a lost visitor) | 7 | Legendary |
+| Tiger | 142 | Legendary |
+| Mountain Lion | 11,553 | Rare |
+| American Black Bear | 41,892 | Uncommon |
+| Whooping Crane | 78,781 | Legendary *(endangered)* |
+| Eastern Gray Squirrel | 234,244 | Common |
+| Bald Eagle | 6,360,035 | Common |
+| Northern Cardinal | 24,852,472 | Common |
+
+Nine of the ten matched expectations. The exception is worth knowing about — see below.
 
 ### 5. Remembering the answer
 
@@ -206,6 +221,10 @@ pytest tests/test_species_rarity.py -v
 
 - It's the easiest thing to cheat (photograph a foreign bird off a screen) and it pays the most. Anti-cheat has to handle that, not the scoring.
 - Revisit at the Week 3 balance check if payouts feel wrong in playtesting.
+
+**A Bald Eagle scores common, and that will annoy people.** It has 6.36 million US sightings — *more than a grey squirrel*. That's factually right: eagles recovered, and birdwatchers report every one they see. But catching one should feel special, and "common, 5 coins" doesn't.
+
+This can't be fixed by moving a boundary. Any threshold that makes an eagle rare also makes a squirrel rare, because the eagle has more sightings. It needs a separate decision — an "iconic species" bonus list, say — which is a team call, not a scoring tweak. Recovered flagship species (eagle, osprey, peregrine) are the whole category.
 
 **The AI sometimes gives a group name instead of a species.** We've seen `Troglodytidae` (a whole bird family) instead of one species. Families have far more sightings than a single animal, so those score as more common than they should. Known and accepted for now.
 
