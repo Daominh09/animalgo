@@ -57,6 +57,15 @@ async def resolve_species_rarity(
         logger.exception("rarity lookup failed for %s", species_id)
         return None
 
+    if occurrence_count == 0:
+        # GBIF returns 0 both for a name it could not match and for a real species never
+        # recorded in the US, and we cannot tell those apart. Either way this is the
+        # always-legendary trap: score_rarity(0, ...) returns "legendary" and 500 coins,
+        # so a hallucinated-but-plausible binomial would mint the top payout silently.
+        # Refusing to score costs an unknown rarity; scoring costs the economy.
+        logger.info("no US occurrences for %s; treating rarity as unknown", species_id)
+        return None
+
     tier, coin_value = rarity.score_rarity(occurrence_count, iucn_status)
 
     return {

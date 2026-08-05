@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -18,6 +19,18 @@ router = APIRouter(prefix="/collection", tags=["collection"])
 # kept in step with rarity.py by hand.
 TIER_ORDER = {"legendary": 0, "rare": 1, "uncommon": 2, "common": 3}
 UNRANKED = len(TIER_ORDER)  # unknown rarity sorts last, not first
+
+
+def _utc_iso(value: datetime) -> str:
+    """ISO 8601 with an explicit UTC offset.
+
+    captured_at is stored naive but written from datetime.utcnow(), so it IS UTC -- the
+    column just doesn't say so. Serialising it bare produced "2026-08-05T21:30:00", which
+    `new Date(...)` in the browser reads as *local* time. For a player in California that
+    shifted an evening capture to the following day on their own card. Stamping the
+    offset makes the value mean what it has always meant.
+    """
+    return value.replace(tzinfo=timezone.utc).isoformat()
 
 
 @router.get("")
@@ -53,7 +66,7 @@ async def get_collection(
             "lng": c.lng,
             "confidence_score": c.confidence_score,
             "confirmed_by_user": c.confirmed_by_user,
-            "captured_at": c.captured_at.isoformat(),
+            "captured_at": _utc_iso(c.captured_at),
         }
         for c in rows
     ]

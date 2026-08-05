@@ -203,6 +203,7 @@ def test_refresh_is_not_rate_limited(monkeypatch):
 
 
 def test_register_signs_the_player_in_when_confirmation_is_off(monkeypatch):
+    _allow_all(monkeypatch)
     _fake_supabase(monkeypatch, response=_FakeResponse(200, SESSION))
 
     resp = _client().post("/auth/register", json=CREDS)
@@ -215,6 +216,7 @@ def test_register_signs_the_player_in_when_confirmation_is_off(monkeypatch):
 def test_register_reports_when_confirmation_is_required(monkeypatch):
     # Supabase returns a user but no session. Saying so is the difference between
     # "nothing happened" and "go and check your inbox".
+    _allow_all(monkeypatch)
     _fake_supabase(monkeypatch, response=_FakeResponse(200, {"user": {"id": "abc"}}))
 
     body = _client().post("/auth/register", json=CREDS).json()
@@ -222,7 +224,29 @@ def test_register_reports_when_confirmation_is_required(monkeypatch):
     assert body == {"confirmation_required": True, "user_id": "abc"}
 
 
+def test_register_is_rate_limited(monkeypatch):
+    # Same shared-bucket problem as login, plus unlimited signups turn "already
+    # registered" into an account-existence oracle.
+    _allow_all(monkeypatch, allowed=False)
+    sent = _fake_supabase(monkeypatch, response=_FakeResponse(200, SESSION))
+
+    resp = _client().post("/auth/register", json=CREDS)
+
+    assert resp.status_code == 429
+    assert sent == {}  # blocked attempts must not be replayed upstream
+
+
+def test_register_limit_is_keyed_on_the_normalised_email(monkeypatch):
+    calls = _allow_all(monkeypatch)
+    _fake_supabase(monkeypatch, response=_FakeResponse(200, SESSION))
+
+    _client().post("/auth/register", json=CREDS)
+
+    assert ("register", "player@example.com") in calls
+
+
 def test_register_hits_the_signup_endpoint(monkeypatch):
+    _allow_all(monkeypatch)
     sent = _fake_supabase(monkeypatch, response=_FakeResponse(200, SESSION))
 
     _client().post("/auth/register", json=CREDS)

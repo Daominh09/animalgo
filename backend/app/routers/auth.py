@@ -33,6 +33,15 @@ _TIMEOUT = httpx.Timeout(10.0)
 LOGIN_LIMIT = 5
 LOGIN_WINDOW_SECONDS = 15 * 60
 
+# Registration needs the same treatment for the same reason: it reaches Supabase from
+# our single IP, so their per-IP signup limit is a shared bucket here too. Unlimited
+# signups would also make this an account-existence oracle -- "already registered" tells
+# an attacker which addresses have accounts. Keyed on email so one address cannot be
+# probed repeatedly; a higher allowance than login because retrying a signup after a
+# validation error is normal and costs nothing.
+REGISTER_LIMIT = 10
+REGISTER_WINDOW_SECONDS = 60 * 60
+
 
 class Credentials(BaseModel):
     email: str
@@ -104,7 +113,15 @@ async def register(body: Credentials) -> dict:
     and `confirmation_required` is true — the account exists but cannot sign in until the
     emailed link is followed.
     """
-    data = await _supabase_auth("signup", {"email": body.email.strip(), "password": body.password})
+    email = body.email.strip().lower()
+
+    if not await ratelimit.check_and_count("register", email, REGISTER_LIMIT, REGISTER_WINDOW_SECONDS):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many sign-up attempts for this email. Try again later.",
+        )
+
+    data = await _supabase_auth("signup", {"email": email, "password": body.password})
 
     if not data.get("access_token"):
         return {"confirmation_required": True, "user_id": (data.get("user") or {}).get("id")}

@@ -81,6 +81,15 @@ def test_empty_collection_is_an_empty_list():
     assert _client([]).get("/collection").json() == []
 
 
+def test_captured_at_declares_utc():
+    # Stored naive but written from utcnow(), so it is UTC and must say so. Bare
+    # "2026-08-01T00:00:00" is read by the browser as local time, which moved evening
+    # captures onto the next day for anyone west of UTC.
+    body = _client([_capture("common", 1)]).get("/collection").json()
+
+    assert body[0]["captured_at"].endswith("+00:00")
+
+
 def test_common_name_is_returned_for_the_card():
     body = _client([_capture("common", 1, common="House Sparrow")]).get("/collection").json()
 

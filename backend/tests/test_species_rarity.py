@@ -108,6 +108,36 @@ def test_no_animal_returns_unknown(monkeypatch):
     assert calls == {"gbif": 0, "iucn": 0}
 
 
+def test_zero_occurrences_returns_unknown_not_legendary(monkeypatch):
+    # GBIF answers 0 both for a name it could not match and for a species genuinely never
+    # recorded here, and the two are indistinguishable. score_rarity(0, "NE") is
+    # "legendary", so scoring this would pay 500 coins for a name vision invented.
+    calls = _patch_lookups(monkeypatch, count=0, status="NE")
+
+    out = asyncio.run(species.resolve_species_rarity("Fakus animalus", "Not A Real Animal"))
+
+    assert out is None
+    assert calls == {"gbif": 1, "iucn": 1}  # it did look; it just refused to score
+
+
+def test_zero_occurrences_is_unknown_even_when_threatened(monkeypatch):
+    # A sensitive status would otherwise force "legendary" before the count is consulted.
+    # An unresolvable name must not be rescued by a status we also cannot trust.
+    _patch_lookups(monkeypatch, count=0, status="EN")
+
+    assert asyncio.run(species.resolve_species_rarity("Fakus animalus")) is None
+
+
+def test_one_occurrence_still_scores(monkeypatch):
+    # The guard is for zero specifically. A genuinely near-absent species is the
+    # legendary case the game is built around, and must still pay.
+    _patch_lookups(monkeypatch, count=1, status="LC")
+
+    out = asyncio.run(species.resolve_species_rarity("Turdus merula", "Eurasian Blackbird"))
+
+    assert out["rarity_tier"] == "legendary"
+
+
 def test_upstream_failure_returns_unknown_not_legendary(monkeypatch):
     _patch_lookups(monkeypatch, fail=True)
 
