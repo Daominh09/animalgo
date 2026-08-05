@@ -1,38 +1,44 @@
 import { useState } from "react";
-import { View, Text, Image, FlatList } from "react-native";
+import { View, Text, Image, FlatList, ActivityIndicator, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { MOCK_CAPTURES_BY_RARITY, RARITY_META, type MockCapture } from "@/mock/captures";
+import { useCollection, type Capture } from "@/api/collection";
+import { rarityMeta } from "@/rarity";
 
 // Owner: Person B — Rarity Engine & Collection
-// Week 1: grid of mock capture cards (sorted by rarity).
-// Week 2: wire to real capture data from GET /collection, sorted by rarity.
+// Week 2: real captures from GET /collection, rarest first (the backend does the
+// ordering, so the grid renders the list as given).
 
-function CaptureCard({ capture }: { capture: MockCapture }) {
-  const meta = RARITY_META[capture.rarity];
+function CaptureCard({ capture }: { capture: Capture }) {
+  const meta = rarityMeta(capture.rarity_tier);
   const [failed, setFailed] = useState(false);
+
   return (
     <View className={`flex-1 m-1.5 rounded-2xl border-2 bg-white p-3 ${meta.ringClass}`}>
-      {/* The photo the player took (R2 image_url in Week 2). Falls back to a neutral
-          placeholder if the image can't load, so a broken URL never shows an empty box. */}
-      {failed ? (
+      {/* The photo the player took. Falls back to a neutral placeholder if the image
+          can't load, so a broken R2 URL never shows an empty box. */}
+      {failed || !capture.image_url ? (
         <View className="aspect-square w-full items-center justify-center rounded-xl bg-slate-200">
           <Text className="text-xs text-slate-500">No photo</Text>
         </View>
       ) : (
         <Image
-          source={{ uri: capture.imageUrl }}
+          source={{ uri: capture.image_url }}
           onError={() => setFailed(true)}
           resizeMode="cover"
           className="aspect-square w-full rounded-xl bg-slate-100"
         />
       )}
-      <Text className="mt-2 font-semibold text-slate-900" numberOfLines={1}>
-        {capture.species}
+
+      {/* Scientific name for now. Once the capture row carries a common name this
+          becomes the headline and the scientific name moves underneath. */}
+      <Text className="mt-2 font-semibold italic text-slate-900" numberOfLines={1}>
+        {capture.species_id ?? "Unidentified"}
       </Text>
-      <Text className="text-xs italic text-slate-500" numberOfLines={1}>
-        {capture.scientificName}
+      <Text className="text-xs text-slate-500" numberOfLines={1}>
+        {new Date(capture.captured_at).toLocaleDateString()}
       </Text>
+
       <View className={`mt-2 self-start rounded-full px-2 py-0.5 ${meta.badgeClass}`}>
         <Text className={`text-xs font-medium ${meta.badgeClass}`}>{meta.label}</Text>
       </View>
@@ -40,22 +46,74 @@ function CaptureCard({ capture }: { capture: MockCapture }) {
   );
 }
 
+/** Full-screen message, used for every state that isn't a populated grid. */
+function Centered({ title, detail, action }: { title: string; detail?: string; action?: React.ReactNode }) {
+  return (
+    <View className="flex-1 items-center justify-center px-8">
+      <Text className="text-center text-base text-slate-700">{title}</Text>
+      {detail ? <Text className="mt-2 text-center text-sm text-slate-400">{detail}</Text> : null}
+      {action}
+    </View>
+  );
+}
+
 export default function CollectionScreen() {
+  const { data, isPending, isError, error, refetch, isRefetching, signedOut } = useCollection();
+
+  const captures = data ?? [];
+  const subtitle = signedOut
+    ? "Not signed in"
+    : isPending
+      ? "Loading…"
+      : `${captures.length} ${captures.length === 1 ? "capture" : "captures"}`;
+
   return (
     <SafeAreaView className="flex-1 bg-slate-50" edges={["top"]}>
       <View className="px-4 pb-2 pt-3">
         <Text className="text-2xl font-bold text-slate-900">Collection</Text>
-        <Text className="text-sm text-slate-500">
-          {MOCK_CAPTURES_BY_RARITY.length} species · mock data (Week 1)
-        </Text>
+        <Text className="text-sm text-slate-500">{subtitle}</Text>
       </View>
-      <FlatList
-        data={MOCK_CAPTURES_BY_RARITY}
-        keyExtractor={(item) => item.id}
-        numColumns={2}
-        contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 24 }}
-        renderItem={({ item }) => <CaptureCard capture={item} />}
-      />
+
+      {signedOut ? (
+        <Centered
+          title="Sign in to see your collection."
+          detail="Your captures are tied to your account."
+        />
+      ) : isPending ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator />
+        </View>
+      ) : isError ? (
+        // Surfaced rather than swallowed: an empty grid and a failed request look
+        // identical to a player, and only one of them is worth retrying.
+        <Centered
+          title="Couldn't load your collection."
+          detail={error instanceof Error ? error.message : undefined}
+          action={
+            <Pressable
+              onPress={() => refetch()}
+              className="mt-4 rounded-full bg-slate-900 px-5 py-2"
+            >
+              <Text className="text-sm font-medium text-white">Try again</Text>
+            </Pressable>
+          }
+        />
+      ) : captures.length === 0 ? (
+        <Centered
+          title="No captures yet."
+          detail="Photograph an animal on the Camera tab to start your collection."
+        />
+      ) : (
+        <FlatList
+          data={captures}
+          keyExtractor={(item) => item.id}
+          numColumns={2}
+          onRefresh={refetch}
+          refreshing={isRefetching}
+          contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 24 }}
+          renderItem={({ item }) => <CaptureCard capture={item} />}
+        />
+      )}
     </SafeAreaView>
   );
 }

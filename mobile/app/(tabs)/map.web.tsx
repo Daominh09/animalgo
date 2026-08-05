@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, ActivityIndicator } from "react-native";
 
+import { useCollection } from "@/api/collection";
 import {
   buildGeoJson,
+  capturesToPins,
   CENTER,
   MAPLIBRE_CSS,
   MAPLIBRE_JS,
   PIN_LAYER,
   STYLE_URL,
   ZOOM,
-  type MapPin,
 } from "@/map/mapHtml";
 
 // Owner: Person B — Rarity Engine & Collection
@@ -24,10 +25,14 @@ import {
 
 // maplibre-gl is loaded from a CDN at runtime rather than bundled, so it stays out of
 // the native build. Minimal shape of the bits we use.
+interface GeoJsonSource {
+  setData(data: unknown): void;
+}
 interface MapLibreMap {
   addControl(control: unknown, position?: string): void;
   addSource(id: string, source: unknown): void;
   addLayer(layer: unknown): void;
+  getSource(id: string): GeoJsonSource | undefined;
   on(event: string, handler: () => void): void;
   remove(): void;
 }
@@ -74,10 +79,16 @@ function loadOnce(tag: "script" | "link", url: string): Promise<void> {
 
 export default function MapScreen() {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
-  // Week 1: no pins yet. Week 2 replaces this with real captures.
-  const pins: MapPin[] = [];
+  const { data, isPending, signedOut } = useCollection();
+  const pins = useMemo(() => capturesToPins(data ?? []), [data]);
+
+  // Kept in a ref so the setup effect never re-runs when captures arrive. Re-running it
+  // would destroy the map and reload every tile on each refetch.
+  const pinsRef = useRef(pins);
+  pinsRef.current = pins;
 
   useEffect(() => {
     let cancelled = false;
@@ -100,8 +111,10 @@ export default function MapScreen() {
         map.addControl(new gl.NavigationControl({ showCompass: false }), "top-right");
         map.on("load", () => {
           if (cancelled) return;
-          map?.addSource("captures", { type: "geojson", data: buildGeoJson(pins) });
+          // pinsRef, not pins: captures may have arrived while the tiles were loading.
+          map?.addSource("captures", { type: "geojson", data: buildGeoJson(pinsRef.current) });
           map?.addLayer(PIN_LAYER);
+          mapRef.current = map ?? null;
           setStatus("ready");
         });
         map.on("error", () => {
@@ -114,11 +127,17 @@ export default function MapScreen() {
 
     return () => {
       cancelled = true;
+      mapRef.current = null;
       map?.remove();
     };
-    // Pins are static in Week 1; re-running on every render would tear down the map.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Push new captures into the existing source rather than rebuilding the map.
+  // No-ops until the map is ready, which the effect above handles.
+  useEffect(() => {
+    if (status !== "ready") return;
+    mapRef.current?.getSource("captures")?.setData(buildGeoJson(pins));
+  }, [pins, status]);
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -142,7 +161,15 @@ export default function MapScreen() {
 
       <View className="absolute left-0 right-0 top-0" pointerEvents="none">
         <View className="m-3 self-start rounded-full bg-black/70 px-3 py-1.5">
-          <Text className="text-xs font-medium text-white">Map · no pins yet (Week 1)</Text>
+          <Text className="text-xs font-medium text-white">
+            {signedOut
+              ? "Sign in to see your captures"
+              : isPending
+                ? "Loading captures…"
+                : pins.length === 0
+                  ? "No captures with a location yet"
+                  : `${pins.length} ${pins.length === 1 ? "capture" : "captures"} · approximate`}
+          </Text>
         </View>
       </View>
     </View>

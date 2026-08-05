@@ -16,17 +16,29 @@
 // origin, and MapLibre spawns a Web Worker from a blob URL, which browsers block in
 // that context — the map fails to initialise and renders blank.
 //
-// Week 2: pass pins to buildGeoJson/buildMapHtml and they render as rarity-coloured
-// circles on both platforms. Captures whose coordinates were fuzzed or withheld for
-// sensitive species (IUCN VU/EN/CR) have no coordinates, so they never become features.
+// Every capture's coordinates are fuzzed to a ~11 km grid by the backend before they are
+// stored, so the pins here are already the publishable locations — there is nothing to
+// filter or blur on this side. Several captures from the same area land on exactly the
+// same point, which is the intended behaviour, not a rendering bug.
 
-/** A capture rendered as a map pin. Captures without coordinates are filtered out upstream. */
+import { rarityMeta } from "../rarity";
+import type { Capture } from "../api/collection";
+
+/** A capture rendered as a map pin. Captures without coordinates are filtered out. */
 export interface MapPin {
   id: string;
   lng: number;
   lat: number;
-  /** Drives the pin colour; matches the backend's rarity tiers. */
-  rarity: "common" | "uncommon" | "rare" | "legendary";
+  /** Drives the pin colour. null when rarity could not be determined. */
+  rarity: string | null;
+}
+
+/** Captures that have a location, as pins. Captures with no coordinates are dropped —
+ *  a pin at 0,0 would be a lie, and the Collection screen still shows them. */
+export function capturesToPins(captures: Capture[]): MapPin[] {
+  return captures
+    .filter((c): c is Capture & { lat: number; lng: number } => c.lat !== null && c.lng !== null)
+    .map((c) => ({ id: c.id, lat: c.lat, lng: c.lng, rarity: c.rarity_tier }));
 }
 
 // Free demo tiles hosted by MapLibre — no API key, no usage fees.
@@ -34,13 +46,6 @@ export const STYLE_URL = "https://demotiles.maplibre.org/style.json";
 export const MAPLIBRE_VERSION = "4.7.1";
 export const MAPLIBRE_JS = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
 export const MAPLIBRE_CSS = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
-
-export const RARITY_COLORS: Record<MapPin["rarity"], string> = {
-  legendary: "#f59e0b",
-  rare: "#0ea5e9",
-  uncommon: "#10b981",
-  common: "#64748b",
-};
 
 // Default view: continental US, since the app targets US-based players.
 export const CENTER: [number, number] = [-98.5, 39.8]; // [lng, lat]
@@ -53,7 +58,7 @@ export function buildGeoJson(pins: MapPin[] = []) {
     features: pins.map((p) => ({
       type: "Feature",
       geometry: { type: "Point", coordinates: [p.lng, p.lat] },
-      properties: { id: p.id, color: RARITY_COLORS[p.rarity] },
+      properties: { id: p.id, color: rarityMeta(p.rarity).color },
     })),
   };
 }
@@ -112,5 +117,3 @@ export function buildMapHtml(pins: MapPin[] = []): string {
 </html>`;
 }
 
-/** Week 1: no pins yet. */
-export const MAP_HTML = buildMapHtml();
