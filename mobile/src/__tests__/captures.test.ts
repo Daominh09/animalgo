@@ -1,6 +1,6 @@
 import type { Capture } from "../api/collection";
 import { displayName, GRID_COLUMNS, rowIndexFor, sortCaptures } from "../captures";
-import { boundsFor, capturesToPins, computeBounds } from "../map/mapHtml";
+import { boundsFor, buildMapHtml, capturesToPins, computeBounds } from "../map/mapHtml";
 import { rarityMeta } from "../rarity";
 
 // Owner: Person B — Rarity Engine & Collection
@@ -188,6 +188,39 @@ describe("boundsFor", () => {
 
   it("returns null only when there are no pins at all", () => {
     expect(boundsFor([], "anything")).toBeNull();
+  });
+});
+
+// --- the map document -------------------------------------------------------------------
+
+describe("buildMapHtml", () => {
+  it("never lets embedded data close the script tag", () => {
+    // JSON.stringify does not escape "<", so a string containing </script> would end the
+    // block early and everything after it would parse as HTML — inside a WebView we hand
+    // our own bridge to. Nothing player-controlled reaches pin properties today; this
+    // stops that being a trap for whoever adds species names to them.
+    const pins = capturesToPins([capture({ id: "</script><img src=x onerror=alert(1)>" })]);
+
+    const html = buildMapHtml(pins);
+
+    expect(html).not.toContain("</script><img");
+    expect(html).toContain("\\u003c/script");
+  });
+
+  it("leaves the data intact after escaping", () => {
+    // "\u003c" is valid inside a JSON string and parses back to "<", so escaping changes
+    // the source text without changing the value the map receives.
+    const pins = capturesToPins([capture({ id: "a<b" })]);
+
+    const embedded = buildMapHtml(pins).match(/data: (\{.*?\}) \}\);/s)?.[1];
+
+    expect(JSON.parse(embedded!).features[0].properties.id).toBe("a<b");
+  });
+
+  it("still frames the pins it was given", () => {
+    const pins = capturesToPins([capture({ lat: 39.85, lng: -98.55 })]);
+
+    expect(buildMapHtml(pins)).toContain("fitBounds");
   });
 });
 

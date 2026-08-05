@@ -124,18 +124,37 @@ export const PIN_HIT_LAYER = {
   },
 };
 
+/**
+ * JSON for embedding inside a `<script>` block.
+ *
+ * JSON.stringify alone is NOT enough here. It does not escape `<`, so a string
+ * containing `</script>` closes the tag early and everything after it is parsed as HTML
+ * — the classic breakout, and it lands inside a WebView we hand our own bridge to.
+ *
+ * Today nothing reaches this that a player controls: pin properties carry a
+ * server-generated UUID and a colour from a fixed table. That changes the moment species
+ * names are denormalised onto pins, and vision output is model-generated text from a
+ * photograph. Escaping now costs one replace and removes the trap rather than leaving it
+ * armed for whoever adds that field.
+ *
+ * `<` is valid inside a JSON string and parses back to `<`, so the data arrives
+ * unchanged.
+ */
+function safeJson(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 /** Self-contained map document, used by the native WebView.
  *
  * `focusId` is baked into the document rather than pushed over the bridge afterwards:
  * the HTML is already rebuilt when the pins change, so framing one capture is the same
  * mechanism, and it avoids a second messaging path for something that happens once. */
 export function buildMapHtml(pins: MapPin[] = [], focusId?: string | null): string {
-  // JSON.stringify keeps injected data escaped — no raw interpolation into JS source.
-  const data = JSON.stringify(buildGeoJson(pins));
-  const layer = JSON.stringify(PIN_LAYER);
-  const hitLayer = JSON.stringify(PIN_HIT_LAYER);
-  const bounds = JSON.stringify(boundsFor(pins, focusId));
-  const fit = JSON.stringify(FIT_OPTIONS);
+  const data = safeJson(buildGeoJson(pins));
+  const layer = safeJson(PIN_LAYER);
+  const hitLayer = safeJson(PIN_HIT_LAYER);
+  const bounds = safeJson(boundsFor(pins, focusId));
+  const fit = safeJson(FIT_OPTIONS);
 
   return `<!DOCTYPE html>
 <html>
