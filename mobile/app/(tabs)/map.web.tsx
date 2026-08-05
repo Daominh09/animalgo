@@ -2,12 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, ActivityIndicator } from "react-native";
 
 import { useCollection } from "@/api/collection";
+import { CaptureCallout } from "@/map/CaptureCallout";
 import {
   buildGeoJson,
   capturesToPins,
   CENTER,
+  computeBounds,
+  FIT_OPTIONS,
   MAPLIBRE_CSS,
   MAPLIBRE_JS,
+  PIN_HIT_LAYER,
   PIN_LAYER,
   STYLE_URL,
   ZOOM,
@@ -28,12 +32,19 @@ import {
 interface GeoJsonSource {
   setData(data: unknown): void;
 }
+interface MapMouseEvent {
+  point: { x: number; y: number };
+  features?: { properties: { id: string } }[];
+}
 interface MapLibreMap {
   addControl(control: unknown, position?: string): void;
   addSource(id: string, source: unknown): void;
   addLayer(layer: unknown): void;
   getSource(id: string): GeoJsonSource | undefined;
-  on(event: string, handler: () => void): void;
+  getCanvas(): HTMLCanvasElement;
+  queryRenderedFeatures(point: unknown, options?: unknown): unknown[];
+  fitBounds(bounds: [[number, number], [number, number]], options?: unknown): void;
+  on(event: string, layerOrHandler: string | ((e: MapMouseEvent) => void), handler?: (e: MapMouseEvent) => void): void;
   remove(): void;
 }
 interface MapLibreGl {
@@ -82,8 +93,12 @@ export default function MapScreen() {
   const mapRef = useRef<MapLibreMap | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
-  const { data, isPending, signedOut } = useCollection();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { data, isPending, isMock } = useCollection();
   const pins = useMemo(() => capturesToPins(data ?? []), [data]);
+  // Looked up by id rather than stored as an object, so a refetch shows the new version
+  // instead of a stale copy, and a capture that disappears closes the card.
+  const selected = data?.find((c) => c.id === selectedId) ?? null;
 
   // Kept in a ref so the setup effect never re-runs when captures arrive. Re-running it
   // would destroy the map and reload every tile on each refetch.
@@ -114,8 +129,32 @@ export default function MapScreen() {
           // pinsRef, not pins: captures may have arrived while the tiles were loading.
           map?.addSource("captures", { type: "geojson", data: buildGeoJson(pinsRef.current) });
           map?.addLayer(PIN_LAYER);
+          map?.addLayer(PIN_HIT_LAYER);
+          const bounds = computeBounds(pinsRef.current);
+          if (bounds) map?.fitBounds(bounds, FIT_OPTIONS);
           mapRef.current = map ?? null;
           setStatus("ready");
+        });
+
+        // Clicks are tested against the invisible hit layer, not the visible pin, so
+        // the target is finger-sized without drawing a finger-sized dot.
+        map.on("click", PIN_HIT_LAYER.id, (e) => {
+          const id = e.features?.[0]?.properties.id;
+          if (id) setSelectedId(id);
+        });
+        // A click on empty map dismisses the card. This also fires for pin clicks, but
+        // MapLibre runs the layer handler first, so the selection survives.
+        map.on("click", (e) => {
+          const hits = mapRef.current?.queryRenderedFeatures(e.point, { layers: [PIN_HIT_LAYER.id] });
+          if (!hits?.length) setSelectedId(null);
+        });
+        map.on("mouseenter", PIN_HIT_LAYER.id, () => {
+          const canvas = mapRef.current?.getCanvas();
+          if (canvas) canvas.style.cursor = "pointer";
+        });
+        map.on("mouseleave", PIN_HIT_LAYER.id, () => {
+          const canvas = mapRef.current?.getCanvas();
+          if (canvas) canvas.style.cursor = "";
         });
         map.on("error", () => {
           if (!cancelled) setStatus("error");
@@ -137,6 +176,8 @@ export default function MapScreen() {
   useEffect(() => {
     if (status !== "ready") return;
     mapRef.current?.getSource("captures")?.setData(buildGeoJson(pins));
+    const bounds = computeBounds(pins);
+    if (bounds) mapRef.current?.fitBounds(bounds, FIT_OPTIONS);
   }, [pins, status]);
 
   return (
@@ -162,16 +203,16 @@ export default function MapScreen() {
       <View className="absolute left-0 right-0 top-0" pointerEvents="none">
         <View className="m-3 self-start rounded-full bg-black/70 px-3 py-1.5">
           <Text className="text-xs font-medium text-white">
-            {signedOut
-              ? "Sign in to see your captures"
-              : isPending
-                ? "Loading captures…"
-                : pins.length === 0
-                  ? "No captures with a location yet"
-                  : `${pins.length} ${pins.length === 1 ? "capture" : "captures"} · approximate`}
+            {isPending
+              ? "Loading captures…"
+              : pins.length === 0
+                ? "No captures with a location yet"
+                : `${pins.length} ${pins.length === 1 ? "capture" : "captures"} · approximate${isMock ? " · mock data" : ""}`}
           </Text>
         </View>
       </View>
+
+      {selected && <CaptureCallout capture={selected} onClose={() => setSelectedId(null)} />}
     </View>
   );
 }

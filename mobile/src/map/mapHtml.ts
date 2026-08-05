@@ -47,9 +47,27 @@ export const MAPLIBRE_VERSION = "4.7.1";
 export const MAPLIBRE_JS = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
 export const MAPLIBRE_CSS = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
 
-// Default view: continental US, since the app targets US-based players.
+// Fallback view when there is nothing to show: continental US, since the app targets
+// US-based players. With pins we fit to them instead — a capture the player cannot see
+// may as well not be on the map, and captures abroad would sit off-screen entirely.
 export const CENTER: [number, number] = [-98.5, 39.8]; // [lng, lat]
 export const ZOOM = 3;
+
+/** Padding and zoom cap for fitting the view to pins. maxZoom stops a single capture
+ *  from zooming to street level, which loses all sense of where it is. */
+export const FIT_OPTIONS = { padding: 48, maxZoom: 9, animate: false };
+
+/** Bounding box of the pins as [[west, south], [east, north]], or null if there are
+ *  none. A single pin gives a zero-size box, which fitBounds handles via maxZoom. */
+export function computeBounds(pins: MapPin[]): [[number, number], [number, number]] | null {
+  if (pins.length === 0) return null;
+  const lngs = pins.map((p) => p.lng);
+  const lats = pins.map((p) => p.lat);
+  return [
+    [Math.min(...lngs), Math.min(...lats)],
+    [Math.max(...lngs), Math.max(...lats)],
+  ];
+}
 
 /** GeoJSON for the capture pins layer. */
 export function buildGeoJson(pins: MapPin[] = []) {
@@ -76,11 +94,28 @@ export const PIN_LAYER = {
   },
 };
 
+/** Invisible larger circle, drawn over the visible pin purely to be tapped. A 7 px
+ *  radius is about 14 px across — fine for a mouse, far below the ~44 px a fingertip
+ *  needs. Taps are tested against this layer, so the pin can stay small. */
+export const PIN_HIT_LAYER = {
+  id: "capture-pins-hit",
+  type: "circle",
+  source: "captures",
+  paint: {
+    "circle-radius": 22,
+    "circle-color": "#000000",
+    "circle-opacity": 0,
+  },
+};
+
 /** Self-contained map document, used by the native WebView. */
 export function buildMapHtml(pins: MapPin[] = []): string {
   // JSON.stringify keeps injected data escaped — no raw interpolation into JS source.
   const data = JSON.stringify(buildGeoJson(pins));
   const layer = JSON.stringify(PIN_LAYER);
+  const hitLayer = JSON.stringify(PIN_HIT_LAYER);
+  const bounds = JSON.stringify(computeBounds(pins));
+  const fit = JSON.stringify(FIT_OPTIONS);
 
   return `<!DOCTYPE html>
 <html>
@@ -94,9 +129,9 @@ export function buildMapHtml(pins: MapPin[] = []): string {
 <body>
 <div id="map"></div>
 <script>
-  function post(msg) { if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); } }
+  function post(msg) { if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(JSON.stringify(msg)); } }
   try {
-    if (!window.maplibregl) { post('error'); } else {
+    if (!window.maplibregl) { post({ type: 'error' }); } else {
       var map = new maplibregl.Map({
         container: 'map',
         style: '${STYLE_URL}',
@@ -107,11 +142,30 @@ export function buildMapHtml(pins: MapPin[] = []): string {
       map.on('load', function () {
         map.addSource('captures', { type: 'geojson', data: ${data} });
         map.addLayer(${layer});
-        post('ready');
+        map.addLayer(${hitLayer});
+        var bounds = ${bounds};
+        if (bounds) { map.fitBounds(bounds, ${fit}); }
+        post({ type: 'ready' });
       });
-      map.on('error', function () { post('error'); });
+
+      // Taps are tested against the invisible hit layer, not the visible pin.
+      map.on('click', '${PIN_HIT_LAYER.id}', function (e) {
+        if (e.features && e.features.length) {
+          post({ type: 'select', id: e.features[0].properties.id });
+        }
+      });
+      // A tap on empty map dismisses the card. This fires for pin taps too, but
+      // MapLibre runs the layer handler first, so the selection survives.
+      map.on('click', function (e) {
+        var hits = map.queryRenderedFeatures(e.point, { layers: ['${PIN_HIT_LAYER.id}'] });
+        if (!hits.length) { post({ type: 'deselect' }); }
+      });
+      map.on('mouseenter', '${PIN_HIT_LAYER.id}', function () { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', '${PIN_HIT_LAYER.id}', function () { map.getCanvas().style.cursor = ''; });
+
+      map.on('error', function () { post({ type: 'error' }); });
     }
-  } catch (e) { post('error'); }
+  } catch (e) { post({ type: 'error' }); }
 </script>
 </body>
 </html>`;

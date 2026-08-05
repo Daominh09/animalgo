@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 
 import { useCollection } from "@/api/collection";
+import { CaptureCallout } from "@/map/CaptureCallout";
 import { buildMapHtml, capturesToPins } from "@/map/mapHtml";
 
 // Owner: Person B — Rarity Engine & Collection
@@ -21,20 +22,38 @@ import { buildMapHtml, capturesToPins } from "@/map/mapHtml";
 
 export default function MapScreen() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const { data, isPending, signedOut } = useCollection();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { data, isPending, isMock } = useCollection();
 
   const pins = useMemo(() => capturesToPins(data ?? []), [data]);
+  // Looked up by id rather than stored as an object, so a refetch that changes a
+  // capture shows the new version instead of a stale copy — and a capture that
+  // disappears closes the card instead of pinning a row that no longer exists.
+  const selected = data?.find((c) => c.id === selectedId) ?? null;
+
+  /** The map document talks to us over the WebView bridge; every message is JSON. */
+  function handleMessage(raw: string) {
+    let msg: { type?: string; id?: string };
+    try {
+      msg = JSON.parse(raw);
+    } catch {
+      setStatus("error");
+      return;
+    }
+    if (msg.type === "ready") setStatus("ready");
+    else if (msg.type === "select" && msg.id) setSelectedId(msg.id);
+    else if (msg.type === "deselect") setSelectedId(null);
+    else setStatus("error");
+  }
   // Only rebuild the document when the pins actually change, so an unrelated re-render
   // doesn't tear the map down and reload the tiles.
   const html = useMemo(() => buildMapHtml(pins), [pins]);
 
-  const label = signedOut
-    ? "Sign in to see your captures"
-    : isPending
-      ? "Loading captures…"
-      : pins.length === 0
-        ? "No captures with a location yet"
-        : `${pins.length} ${pins.length === 1 ? "capture" : "captures"} · approximate`;
+  const label = isPending
+    ? "Loading captures…"
+    : pins.length === 0
+      ? "No captures with a location yet"
+      : `${pins.length} ${pins.length === 1 ? "capture" : "captures"} · approximate${isMock ? " · mock data" : ""}`;
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -44,7 +63,7 @@ export default function MapScreen() {
         key={html.length}
         originWhitelist={["*"]}
         source={{ html }}
-        onMessage={(e) => setStatus(e.nativeEvent.data === "ready" ? "ready" : "error")}
+        onMessage={(e) => handleMessage(e.nativeEvent.data)}
         onError={() => setStatus("error")}
         style={{ flex: 1 }}
       />
@@ -70,6 +89,8 @@ export default function MapScreen() {
           <Text className="text-xs font-medium text-white">{label}</Text>
         </View>
       </SafeAreaView>
+
+      {selected && <CaptureCallout capture={selected} onClose={() => setSelectedId(null)} />}
     </View>
   );
 }
