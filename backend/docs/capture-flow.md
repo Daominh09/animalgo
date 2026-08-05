@@ -10,7 +10,8 @@ What happens between a player tapping the shutter and getting points back.
 2. An AI model looks at the photo and says what animal it is.
 3. We ask GBIF (a wildlife database) how often that animal is seen in the US, and how endangered it is.
 4. Those two numbers decide how rare it is, and how many coins it's worth.
-5. If we can't work out any of this, we say **"unknown"** — we never guess.
+5. We blur where the photo was taken, always, before saving anything.
+6. If we can't work out any of this, we say **"unknown"** — we never guess.
 
 ---
 
@@ -18,7 +19,7 @@ What happens between a player tapping the shutter and getting points back.
 
 ```mermaid
 flowchart TD
-    A["Player takes a photo"] --> B["POST /captures/detect"]
+    A["Player takes a photo"] --> B["POST /captures/detect-and-store"]
     B --> C{"Photo under 10 MB?"}
     C -- "no" --> C1["Rejected"]
     C -- "yes" --> D["Ask the AI what animal it is"]
@@ -37,8 +38,11 @@ flowchart TD
     J -- "yes" --> K["Work out tier and coins"]
 
     K --> L["Remember the answer for 7 days"]
-    L --> M["Send result back to the app"]
-    Z --> M
+    L --> Q
+    Z --> Q
+
+    Q["Blur the location<br/>to a ~11 km area"]
+    Q --> M["Send result back to the app"]
 ```
 
 ---
@@ -47,7 +51,7 @@ flowchart TD
 
 ### 1. The photo arrives
 
-`POST /captures/detect` — the app uploads the photo directly. Anything over **10 MB** is rejected, so a huge file can't tie up the server or waste an AI call.
+`POST /captures/detect-and-store` — the app uploads the photo directly. Anything over **10 MB** is rejected, so a huge file can't tie up the server or waste an AI call.
 
 ### 2. The AI identifies the animal
 
@@ -84,6 +88,37 @@ Two questions to GBIF:
 Wildlife facts barely change, and GBIF blocks us if we ask too often. So every answer is kept for **7 days** in fast storage (Redis). The second player to photograph a sparrow costs us no lookups at all.
 
 Redis is the **only** cache. There's no copy in the database: a `species_cache` table existed but nothing ever read it, so it was removed. Anything the app needs to display later gets saved on the capture itself — which is also what stops a player's card changing after the fact, since species facts can be updated but a capture shouldn't be.
+
+### 6. Blurring the location
+
+Publishing the exact spot where someone photographed an animal can get it poached or collected. So **every** capture's location is replaced with a **rough area about 11 km across** before anything is saved.
+
+Every capture comes back with a `location`:
+
+```json
+"location": { "lat": 39.85, "lng": -98.55 }
+```
+
+Both are `null` if no location was sent, or the one sent was invalid.
+
+**Every capture, no exceptions.** We could blur only endangered species, but then a rare animal's privacy depends on a species lookup being right and working. And it wouldn't even hold: photograph a sparrow next to an eagle's nest, and the sparrow's exact location gives away the nest. Blurring everything has neither problem, and there's no rule to get wrong.
+
+**How the blurring works.** Picture graph paper laid over the map, squares about 11 km across. Every capture is reported as **the centre of its square**:
+
+```
+39.90 ┼───────────────┼───────────────┼
+      │       ·b      │               │   ·  where it really was
+      │    ●          │       ●       │   ●  what we publish
+      │  ·a       ·c  │               │
+39.80 ┼───────────────┼───────────────┼
+    -98.60         -98.50         -98.40
+```
+
+Photos **a**, **b** and **c** were taken in three different places. All three publish as `39.85, -98.55`.
+
+> **Why a fixed grid instead of a random nudge.** Random nudging sounds safer but isn't. Each photo would get a *fresh* random error, so each one is a new rough guess at the truth — photograph the same nest twenty times, average the twenty points, and the errors cancel and the real spot appears. A grid gives the same answer for the same place every single time. Twenty photos reveal exactly as much as one. **The blurring can't be worn down by repetition.**
+
+**This happens before saving, not when displaying.** Once a real coordinate is written to the database it's in every backup and export from then on, and deleting it later doesn't un-leak it. So the exact location is thrown away up front and never stored.
 
 ---
 
@@ -123,9 +158,12 @@ curl -X POST \
   "confidence": 0.75,
   "image_url": "...",
   "rarity": { "gbif_occurrence_count": 17532959, "iucn_status": "LC",
-              "rarity_tier": "common", "coin_value": 5 }
+              "rarity_tier": "common", "coin_value": 5 },
+  "location": { "lat": 39.85, "lng": -98.45 }
 }
 ```
+
+Note the location that comes back isn't the one that was sent — `39.8, -98.5` was blurred to the centre of its square. That happens to every capture.
 
 A login token is required, and the photo really is stored — this is the production path, not a shortcut.
 
@@ -150,5 +188,7 @@ pytest tests/test_species_rarity.py -v
 **The AI sometimes gives a group name instead of a species.** We've seen `Troglodytidae` (a whole bird family) instead of one species. Families have far more sightings than a single animal, so those score as more common than they should. Known and accepted for now.
 
 **Nothing is saved to the player's collection yet.** Rarity is calculated and handed back, but writing the capture record is the next piece of work.
+
+**The map is approximate for everyone.** Blurring every capture means no pin is ever exact, including common animals. That's the deliberate trade: it's a prototype, and a rule with no exceptions is worth more than a clever one that can be got wrong. If playtesting shows the map feels too vague, the square size is one number in `geoprivacy.py`.
 
 **Requires Redis.** With no working Redis connection, every lookup fails and every capture comes back as unknown rarity. If everything suddenly scores `null`, check Redis first.

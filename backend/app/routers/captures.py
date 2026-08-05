@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.dependencies.auth import get_current_user_id
-from app.services import species, storage, vision
+from app.services import geoprivacy, species, storage, vision
 
 router = APIRouter(prefix="/captures", tags=["captures"])
 
@@ -58,9 +58,18 @@ async def detect_and_store(
         common_name=result.get("species"),
     )
 
+    # Geoprivacy: every capture is fuzzed to a ~11 km grid cell, so no capture can lead
+    # anyone to a specific nest or den. This MUST stay above the Capture row write when
+    # that lands -- once a raw coordinate is in Postgres it is queryable, joinable, and
+    # in every backup from then on. `location` is the only coordinate anything
+    # downstream (the DB write, the response, the Map screen) may use. Do not persist or
+    # return the raw lat/lng, and do not log them.
+    location = geoprivacy.fuzz_coordinates(lat, lng)
+
     return {
         **result,
         "image_url": image_url,
         "object_key": object_key,
         "rarity": rarity_result,
+        "location": location,
     }

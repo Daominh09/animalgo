@@ -1,5 +1,7 @@
 # Owner: Person B — Rarity Engine & Collection
-# Week 2: replace with the real regionally-weighted scoring formula and fuzzing logic
+# Scoring only. Coordinate protection lives in app/services/geoprivacy.py, kept separate
+# so the Week 4 privacy audit has one small file to read rather than a scoring module to
+# pick through. SENSITIVE_STATUSES is shared with it.
 #
 # DELIBERATE: occurrence_count is US-only, so a species that is abundant elsewhere but
 # barely recorded in the US scores as legendary. Example — Eurasian Blackbird
@@ -28,11 +30,3 @@ def score_rarity(occurrence_count: int, iucn_status: str) -> tuple[str, int]:
     if occurrence_count < 1000:
         return "uncommon", 25
     return "common", 5
-
-
-def fuzz_coordinates(lat: float, lng: float, iucn_status: str) -> tuple[float | None, float | None]:
-    """TODO: implement real fuzzing (e.g. round to ~1 decimal degree) for sensitive species.
-    Withholding entirely (None, None) is the safe placeholder default."""
-    if iucn_status in SENSITIVE_STATUSES:
-        return None, None
-    return lat, lng
