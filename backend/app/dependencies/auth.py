@@ -25,10 +25,11 @@ _jwks_client = PyJWKClient(f"{settings.supabase_url}/auth/v1/.well-known/jwks.js
 _bearer = HTTPBearer(
     auto_error=False,
     description=(
-        "Supabase user access token. Get one from **POST /auth/token** on this page, "
-        "then paste the `access_token` here. The anon/publishable key will NOT work: it "
-        "is issued for audience 'anon', and this API requires 'authenticated'. "
-        "Setup and troubleshooting: `backend/docs/dev-auth.md`."
+        "Supabase user access token — the `access_token` from signing in. In the app "
+        "this is sent for you; to call the API by hand, sign in via "
+        "POST {SUPABASE_URL}/auth/v1/token?grant_type=password with the anon key as an "
+        "`apikey` header and paste the `access_token` here. The anon key itself will NOT "
+        "work: it is issued for audience 'anon', and this API requires 'authenticated'."
     ),
 )
 

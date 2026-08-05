@@ -208,7 +208,7 @@ Note the location that comes back isn't the one that was sent — `39.8, -98.5` 
 
 A login token is required, and the photo really is stored — this is the production path, not a shortcut.
 
-To get that token in a few seconds, see [dev-auth.md](dev-auth.md).
+The token is the `access_token` you get from signing in. The app sends it automatically; to call the API by hand, sign in against Supabase and copy it from the response.
 
 To check the scoring rules on their own without a photo, the tests cover every case
 (`tests/test_species_rarity.py`), and they run without network or a database:

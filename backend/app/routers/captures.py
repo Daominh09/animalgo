@@ -38,8 +38,8 @@ async def detect_and_store(
     Upload a photo (max 10 MB). Returns the species, the stored image URL, and a
     `rarity` object with the tier and coin value.
 
-    Auth: get a token from **POST /auth/token**, then click **Authorize** and paste it
-    (the anon key will not work). `rarity` is `null` when rarity could not be determined — that means
+    Auth: click **Authorize** and paste the `access_token` from signing in (the anon key
+    will not work). `rarity` is `null` when rarity could not be determined — that means
     *unknown*, not zero and not "common". Full details in `backend/docs/capture-flow.md`.
     """
     # read() with a cap so an oversized upload never fully lands in memory.

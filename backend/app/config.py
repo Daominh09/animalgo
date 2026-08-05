@@ -4,10 +4,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     database_url: str
     supabase_url: str
-
-    # Dev only: the project's anon/publishable key. Used solely by POST /auth/token to
-    # trade an email + password for a user access token. Leaving it blank disables that
-    # endpoint (503), which is how it stays out of a deployed environment.
+    # Identifies our project to Supabase's auth server. Required: the /auth endpoints
+    # cannot sign anyone in without it, and they return 503 saying so if it is unset.
     supabase_anon_key: str = ""
 
     r2_account_id: str = ""
@@ -34,10 +32,20 @@ class Settings(BaseSettings):
     redis_username: str = ""
     redis_password: str = ""
 
+    # Browser origins allowed to call this API, comma-separated. Only the web build
+    # needs this: iOS and Android are not browsers and never send an Origin header, so
+    # CORS does not apply to them. Defaults cover Expo's web dev server (Metro serves on
+    # 8081; 19006 is the older webpack port). A deployed environment sets its own.
+    cors_origins: str = "http://localhost:8081,http://localhost:19006,http://localhost:3000"
+
     # extra="ignore" so unused/extra keys in .env (e.g. the split REDIS_HOST/
     # REDIS_PORT/REDIS_USERNAME/REDIS_PASSWORD credentials) don't crash startup.
     # The app connects to Redis via REDIS_URL only.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def redis_dsn(self) -> str:

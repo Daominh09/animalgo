@@ -1,66 +1,73 @@
 import httpx
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.services import ratelimit
 
-router = APIRouter(prefix="/auth", tags=["auth (dev)"])
+router = APIRouter(prefix="/auth", tags=["auth"])
 
-# Owner: Person B — added as shared dev tooling.
+# Owner: Person B — built ahead of Person D's shared-infra slot, because the team needed
+# their own logins instead of sharing one set of credentials.
 #
-# Convenience endpoint so nobody has to hand-craft a curl call to Supabase every time
-# they want to try an authenticated endpoint in /docs. It exchanges an email + password
-# for a Supabase user access token — exactly what `POST {SUPABASE_URL}/auth/v1/token
-# ?grant_type=password` does, just reachable from the docs page.
+# The app signs in through here rather than calling Supabase directly. That keeps one
+# API surface for the client and means auth rules (throttling, lockouts, audit) live in
+# one place we control.
 #
-# DEV ONLY. The mobile app does NOT use this: it talks to Supabase directly with
-# EXPO_PUBLIC_SUPABASE_ANON_KEY (see mobile/.env.example), which is the right design —
-# passwords should never transit our API. Proxying them here turns the backend into a
-# credential-stuffing target with none of Supabase's own rate limiting in front of it.
-# That is an acceptable trade for a local dev tool and NOT acceptable in production.
+# The trade-off, stated so nobody has to rediscover it: passwords transit our server.
+# We never store or log them, but we are now on the path of every sign-in, and Supabase's
+# per-IP throttling sees our server's IP for every user rather than each user's own. The
+# limiter in app/services/ratelimit.py is what replaces that protection -- without it
+# password guessing against this endpoint would be unmetered.
 #
-# The off switch is SUPABASE_ANON_KEY: leave it unset in any deployed environment and
-# this endpoint returns 503 instead of working. No separate feature flag to remember,
-# because the key is the one thing the endpoint cannot function without.
+# The anon key is what identifies our project to Supabase's auth server. It is not a
+# secret (it ships in every client build elsewhere) but it is not the user's credential
+# either, and it never appears in a response.
 
 _TIMEOUT = httpx.Timeout(10.0)
 
+# Five attempts per email per fifteen minutes. Enough headroom for a person mistyping a
+# password, far too little for guessing one. Keyed on email rather than IP so a shared
+# network doesn't lock out a whole classroom, and so an attacker rotating IPs gains
+# nothing against a single account.
+LOGIN_LIMIT = 5
+LOGIN_WINDOW_SECONDS = 15 * 60
 
-class TokenRequest(BaseModel):
+
+class Credentials(BaseModel):
     email: str
-    password: str
+    # Supabase's own minimum is 6; stating it here turns a confusing upstream 422 into a
+    # clear message before the request ever leaves our server.
+    password: str = Field(min_length=6)
 
 
-@router.post("/token")
-async def get_access_token(body: TokenRequest) -> dict:
-    """Exchange a Supabase email + password for an access token. **Dev helper.**
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
-    Copy the returned `access_token` into the **Authorize** button at the top of this
-    page to call the authenticated endpoints. It expires in about an hour — just call
-    this again. See `backend/docs/dev-auth.md`.
-    """
+
+async def _supabase_auth(path: str, payload: dict, params: dict | None = None) -> dict:
+    """POST to Supabase's auth API and return the parsed body, translating its failures
+    into ours. Raises HTTPException; never returns an error body."""
     if not settings.supabase_anon_key:
         raise HTTPException(
             status_code=503,
             detail=(
-                "Dev auth is not configured. Set SUPABASE_ANON_KEY in backend/.env "
-                "(Supabase dashboard -> Project Settings -> API Keys -> anon public)."
+                "Auth is not configured: set SUPABASE_ANON_KEY in backend/.env "
+                "(Supabase -> Project Settings -> API Keys -> anon public)."
             ),
         )
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(
-                f"{settings.supabase_url}/auth/v1/token",
-                params={"grant_type": "password"},
-                # The anon key identifies the *project* to Supabase's auth server. It is
-                # not the user's credential and is not what the caller gets back.
+                f"{settings.supabase_url}/auth/v1/{path}",
+                params=params,
                 headers={"apikey": settings.supabase_anon_key},
-                json={"email": body.email, "password": body.password},
+                json=payload,
             )
     except httpx.HTTPError as exc:
-        # Our own network/DNS problem, not the caller's bad password — don't report it
-        # as 401 or people will waste time retyping a correct password.
+        # Our network failing is not the caller's bad password. Reporting it as 401 would
+        # send them off to retype a password that was correct all along.
         raise HTTPException(status_code=502, detail=f"Could not reach Supabase auth: {exc}") from exc
 
     try:
@@ -68,16 +75,75 @@ async def get_access_token(body: TokenRequest) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=502, detail="Unexpected response from Supabase auth") from exc
 
-    if resp.status_code != 200:
-        # Pass Supabase's own wording through: "Invalid login credentials" and "Email not
-        # confirmed" are different problems and the fix differs.
-        detail = data.get("error_description") or data.get("msg") or "Sign-in failed"
-        raise HTTPException(status_code=401, detail=detail)
+    if resp.status_code >= 400:
+        # Supabase's own wording is passed through: "Invalid login credentials" and
+        # "Email not confirmed" need different fixes from the person reading them.
+        detail = data.get("error_description") or data.get("msg") or data.get("message") or "Authentication failed"
+        # 4xx from Supabase is about the credentials; 5xx is Supabase having a bad day.
+        raise HTTPException(status_code=401 if resp.status_code < 500 else 502, detail=detail)
 
-    # Deliberately narrow: no refresh_token in the response. It is long-lived, and for a
-    # dev helper calling this endpoint again is easier than a refresh round-trip anyway.
+    return data
+
+
+def _session(data: dict) -> dict:
+    """The session fields the app needs, and nothing else."""
     return {
         "access_token": data["access_token"],
-        "expires_in": data.get("expires_in"),
+        "refresh_token": data["refresh_token"],
+        "expires_in": data.get("expires_in", 3600),
         "user_id": (data.get("user") or {}).get("id"),
     }
+
+
+@router.post("/register", status_code=201)
+async def register(body: Credentials) -> dict:
+    """Create an account.
+
+    Returns a session when the project has email confirmation switched off, so a new
+    player is signed in immediately. With confirmation on, Supabase returns no session
+    and `confirmation_required` is true — the account exists but cannot sign in until the
+    emailed link is followed.
+    """
+    data = await _supabase_auth("signup", {"email": body.email.strip(), "password": body.password})
+
+    if not data.get("access_token"):
+        return {"confirmation_required": True, "user_id": (data.get("user") or {}).get("id")}
+
+    return {"confirmation_required": False, **_session(data)}
+
+
+@router.post("/login")
+async def login(body: Credentials) -> dict:
+    """Exchange an email and password for a session.
+
+    `access_token` goes in the `Authorization: Bearer` header of every other request. It
+    expires in about an hour; use `refresh_token` against `/auth/refresh` rather than
+    asking the player to sign in again.
+    """
+    email = body.email.strip().lower()
+
+    if not await ratelimit.check_and_count("login", email, LOGIN_LIMIT, LOGIN_WINDOW_SECONDS):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many sign-in attempts for this email. Wait 15 minutes and try again.",
+        )
+
+    data = await _supabase_auth("token", {"email": email, "password": body.password}, {"grant_type": "password"})
+
+    # Only a success clears the counter, so failures keep accumulating toward the limit.
+    await ratelimit.reset("login", email)
+    return _session(data)
+
+
+@router.post("/refresh")
+async def refresh(body: RefreshRequest) -> dict:
+    """Trade a refresh token for a fresh session.
+
+    Not rate limited: a refresh token is already a credential the caller had to obtain by
+    signing in, so there is nothing to guess. Throttling it would only break long
+    sessions on flaky networks.
+    """
+    data = await _supabase_auth(
+        "token", {"refresh_token": body.refresh_token}, {"grant_type": "refresh_token"}
+    )
+    return _session(data)
