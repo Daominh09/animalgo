@@ -2,8 +2,10 @@ import { create } from "zustand";
 
 interface AppState {
   userId: string | null;
-  // Supabase access token — set once a login flow exists. Every
-  // authenticated API call (wallet, purchase, ...) reads this.
+  /** Access token, sent as the bearer token on every authenticated request. Issued by
+   *  Supabase but obtained through our own /auth endpoints, so the app never talks to
+   *  Supabase directly. Written only by src/auth/useSession.ts, which also refreshes it
+   *  before it expires. */
   accessToken: string | null;
   walletBalance: number;
   setUser: (id: string | null) => void;

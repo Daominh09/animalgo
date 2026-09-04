@@ -21,7 +21,11 @@ class Capture(Base):
     __tablename__ = "captures"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    species_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    species_id: Mapped[str | None] = mapped_column(String, nullable=True)  # scientific name
+    # What the player is shown. Denormalised onto the capture for the same reason as
+    # rarity_tier: the card must keep saying what it said when the capture was made.
+    # Nullable because vision can identify only a family, which has no common name.
+    common_name: Mapped[str | None] = mapped_column(String, nullable=True)
     image_url: Mapped[str] = mapped_column(String)
     rarity_tier: Mapped[str | None] = mapped_column(String, nullable=True)
     lat: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -31,21 +35,9 @@ class Capture(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
-class SpeciesCache(Base):
-    """Durable per-species rarity reference cache (Postgres). Redis is the hot cache in
-    front of this (app/services/cache.py); this table is the record written on the
-    capture path so rarity data survives a Redis flush and stays auditable.
-
-    The app targets US-based players only, so occurrence counts are always US and there
-    is no region column — species_id alone is the primary key.
-    """
-
-    __tablename__ = "species_cache"
-    species_id: Mapped[str] = mapped_column(String, primary_key=True)
-    common_name: Mapped[str] = mapped_column(String)
-    gbif_occurrence_count: Mapped[int] = mapped_column(Integer, default=0)  # US occurrences
-    iucn_status: Mapped[str] = mapped_column(String, default="NE")
-    cached_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+# SpeciesCache was removed: nothing read it, so it was a write-only table. Redis
+# (app/services/cache.py) is the only rarity cache now, and per-capture display data is
+# denormalised onto the Capture row above.
 
 
 class Battle(Base):

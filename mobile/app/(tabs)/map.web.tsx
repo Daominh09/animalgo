@@ -1,15 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, ActivityIndicator } from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
 
+import { useCollection } from "@/api/collection";
+import { CaptureCallout } from "@/map/CaptureCallout";
 import {
+  boundsFor,
   buildGeoJson,
+  capturesToPins,
   CENTER,
+  FIT_OPTIONS,
   MAPLIBRE_CSS,
   MAPLIBRE_JS,
+  PIN_HIT_LAYER,
   PIN_LAYER,
   STYLE_URL,
   ZOOM,
-  type MapPin,
 } from "@/map/mapHtml";
 
 // Owner: Person B — Rarity Engine & Collection
@@ -24,11 +30,22 @@ import {
 
 // maplibre-gl is loaded from a CDN at runtime rather than bundled, so it stays out of
 // the native build. Minimal shape of the bits we use.
+interface GeoJsonSource {
+  setData(data: unknown): void;
+}
+interface MapMouseEvent {
+  point: { x: number; y: number };
+  features?: { properties: { id: string } }[];
+}
 interface MapLibreMap {
   addControl(control: unknown, position?: string): void;
   addSource(id: string, source: unknown): void;
   addLayer(layer: unknown): void;
-  on(event: string, handler: () => void): void;
+  getSource(id: string): GeoJsonSource | undefined;
+  getCanvas(): HTMLCanvasElement;
+  queryRenderedFeatures(point: unknown, options?: unknown): unknown[];
+  fitBounds(bounds: [[number, number], [number, number]], options?: unknown): void;
+  on(event: string, layerOrHandler: string | ((e: MapMouseEvent) => void), handler?: (e: MapMouseEvent) => void): void;
   remove(): void;
 }
 interface MapLibreGl {
@@ -74,10 +91,35 @@ function loadOnce(tag: "script" | "link", url: string): Promise<void> {
 
 export default function MapScreen() {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
-  // Week 1: no pins yet. Week 2 replaces this with real captures.
-  const pins: MapPin[] = [];
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const { data, isPending } = useCollection();
+  const { focus } = useLocalSearchParams<{ focus?: string }>();
+
+  // A capture id arriving from the Collection screen. Held in state and the param
+  // cleared, so returning to this tab later doesn't re-frame the same capture, and so
+  // asking for the same one twice works instead of being a no-op.
+  useEffect(() => {
+    if (!focus) return;
+    setFocusId(focus);
+    setSelectedId(focus);
+    router.setParams({ focus: undefined });
+  }, [focus]);
+
+  const pins = useMemo(() => capturesToPins(data ?? []), [data]);
+  // Looked up by id rather than stored as an object, so a refetch shows the new version
+  // instead of a stale copy, and a capture that disappears closes the card.
+  const selected = data?.find((c) => c.id === selectedId) ?? null;
+
+  // Kept in a ref so the setup effect never re-runs when captures arrive. Re-running it
+  // would destroy the map and reload every tile on each refetch.
+  const pinsRef = useRef(pins);
+  pinsRef.current = pins;
+  const focusRef = useRef(focusId);
+  focusRef.current = focusId;
 
   useEffect(() => {
     let cancelled = false;
@@ -100,12 +142,42 @@ export default function MapScreen() {
         map.addControl(new gl.NavigationControl({ showCompass: false }), "top-right");
         map.on("load", () => {
           if (cancelled) return;
-          map?.addSource("captures", { type: "geojson", data: buildGeoJson(pins) });
+          // pinsRef, not pins: captures may have arrived while the tiles were loading.
+          map?.addSource("captures", { type: "geojson", data: buildGeoJson(pinsRef.current) });
           map?.addLayer(PIN_LAYER);
+          map?.addLayer(PIN_HIT_LAYER);
+          const bounds = boundsFor(pinsRef.current, focusRef.current);
+          if (bounds) map?.fitBounds(bounds, FIT_OPTIONS);
+          mapRef.current = map ?? null;
           setStatus("ready");
         });
+
+        // Clicks are tested against the invisible hit layer, not the visible pin, so
+        // the target is finger-sized without drawing a finger-sized dot.
+        map.on("click", PIN_HIT_LAYER.id, (e) => {
+          const id = e.features?.[0]?.properties.id;
+          if (id) setSelectedId(id);
+        });
+        // A click on empty map dismisses the card. This also fires for pin clicks, but
+        // MapLibre runs the layer handler first, so the selection survives.
+        map.on("click", (e) => {
+          const hits = mapRef.current?.queryRenderedFeatures(e.point, { layers: [PIN_HIT_LAYER.id] });
+          if (!hits?.length) setSelectedId(null);
+        });
+        map.on("mouseenter", PIN_HIT_LAYER.id, () => {
+          const canvas = mapRef.current?.getCanvas();
+          if (canvas) canvas.style.cursor = "pointer";
+        });
+        map.on("mouseleave", PIN_HIT_LAYER.id, () => {
+          const canvas = mapRef.current?.getCanvas();
+          if (canvas) canvas.style.cursor = "";
+        });
+        // MapLibre emits `error` for recoverable things too — a single tile failing to
+        // load, for instance. Only treat it as fatal if the map never finished loading.
+        // Latching after "ready" put a "couldn't load the map" overlay over a working
+        // map, and froze pin updates, since the sync effect below waits for "ready".
         map.on("error", () => {
-          if (!cancelled) setStatus("error");
+          if (!cancelled) setStatus((s) => (s === "loading" ? "error" : s));
         });
       } catch {
         if (!cancelled) setStatus("error");
@@ -114,11 +186,19 @@ export default function MapScreen() {
 
     return () => {
       cancelled = true;
+      mapRef.current = null;
       map?.remove();
     };
-    // Pins are static in Week 1; re-running on every render would tear down the map.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Push new captures into the existing source rather than rebuilding the map.
+  // No-ops until the map is ready, which the effect above handles.
+  useEffect(() => {
+    if (status !== "ready") return;
+    mapRef.current?.getSource("captures")?.setData(buildGeoJson(pins));
+    const bounds = boundsFor(pins, focusId);
+    if (bounds) mapRef.current?.fitBounds(bounds, FIT_OPTIONS);
+  }, [pins, focusId, status]);
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -142,9 +222,28 @@ export default function MapScreen() {
 
       <View className="absolute left-0 right-0 top-0" pointerEvents="none">
         <View className="m-3 self-start rounded-full bg-black/70 px-3 py-1.5">
-          <Text className="text-xs font-medium text-white">Map · no pins yet (Week 1)</Text>
+          <Text className="text-xs font-medium text-white">
+            {isPending
+              ? "Loading captures…"
+              : pins.length === 0
+                ? "No captures with a location yet"
+                : `${pins.length} ${pins.length === 1 ? "capture" : "captures"} · approximate`}
+          </Text>
         </View>
       </View>
+
+      {selected && (
+        <CaptureCallout
+          capture={selected}
+          onClose={() => setSelectedId(null)}
+          onViewInCollection={() => {
+            // Close first: coming back to the Map tab should show the map, not a card
+            // left open over it from a previous visit.
+            setSelectedId(null);
+            router.push({ pathname: "/(tabs)/collection", params: { highlight: selected.id } });
+          }}
+        />
+      )}
     </View>
   );
 }
