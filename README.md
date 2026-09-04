@@ -99,6 +99,14 @@ filling in credentials, not signing up for anything.
 **`backend/.env`** (copy from `backend/.env.example`):
 - `DATABASE_URL` — Supabase Postgres connection string
 - `SUPABASE_URL`
+- `SUPABASE_ANON_KEY` — identifies the project to Supabase's auth server.
+  Required: `/auth/register`, `/auth/login` and `/auth/refresh` return 503
+  without it. Dashboard → Project Settings → API Keys → "anon public".
+  Never put the `service_role` key here.
+- `CORS_ORIGINS` — optional, comma-separated. Only the web build needs it.
+  Defaults cover Expo's dev server; add your port if Metro picks a
+  different one, or the browser blocks every request with a bare
+  "NetworkError" that says nothing about the cause.
 - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
   `R2_BUCKET_NAME`, `R2_ENDPOINT_URL` — Cloudflare R2
 - `DEEPSEEK_API_KEY` — currently blocked, see the Tech Stack note above;
@@ -110,7 +118,10 @@ filling in credentials, not signing up for anything.
 
 **`mobile/.env`** (copy from `mobile/.env.example`):
 - `EXPO_PUBLIC_API_URL` — see the LAN IP note in the setup steps above
-- `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+
+That's the only one. The app signs in through the backend, so no Supabase
+URL or key reaches the client. Create an account from the app's sign-in
+screen rather than sharing credentials.
 
 ## Schema changes (Alembic)
 

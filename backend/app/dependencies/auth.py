@@ -1,5 +1,6 @@
 import jwt
-from fastapi import Header, HTTPException
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 
 from app.config import settings
@@ -12,16 +13,37 @@ from app.config import settings
 # HTTP fetch, subsequent ones are served from cache.
 _jwks_client = PyJWKClient(f"{settings.supabase_url}/auth/v1/.well-known/jwks.json")
 
+# Declared as a security scheme rather than a plain `Header(...)` parameter, because
+# the OpenAPI spec says a header parameter literally named "Authorization" SHALL be
+# ignored. With a raw Header(...) the docs page renders a text box that is silently
+# dropped, so requests arrive with no header and fail as "Field required" — confusing,
+# and it makes /docs unusable for every authenticated endpoint. A security scheme gives
+# the docs page its "Authorize" button and sends the header correctly.
+#
+# auto_error=False so a missing header is our own 401 "Missing bearer token" rather
+# than FastAPI's default 403.
+_bearer = HTTPBearer(
+    auto_error=False,
+    description=(
+        "Supabase user access token — the `access_token` from signing in. In the app "
+        "this is sent for you; to call the API by hand, sign in via "
+        "POST {SUPABASE_URL}/auth/v1/token?grant_type=password with the anon key as an "
+        "`apikey` header and paste the `access_token` here. The anon key itself will NOT "
+        "work: it is issued for audience 'anon', and this API requires 'authenticated'."
+    ),
+)
 
-async def get_current_user_id(authorization: str = Header(...)) -> str:
+
+async def get_current_user_id(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> str:
     """Verifies the Supabase-issued JWT sent by the mobile app and returns the user id."""
-    if not authorization.startswith("Bearer "):
+    if credentials is None:
         raise HTTPException(status_code=401, detail="Missing bearer token")
-    token = authorization.removeprefix("Bearer ")
     try:
-        signing_key = _jwks_client.get_signing_key_from_jwt(token)
+        signing_key = _jwks_client.get_signing_key_from_jwt(credentials.credentials)
         payload = jwt.decode(
-            token,
+            credentials.credentials,
             signing_key.key,
             algorithms=["ES256", "RS256"],
             audience="authenticated",

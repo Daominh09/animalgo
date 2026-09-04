@@ -9,9 +9,10 @@ from app.config import settings
 # rate-limits bursts of anonymous requests (429 after a handful). get_or_fetch keeps
 # repeated lookups off the wire.
 #
-# This is the *hot* cache. The durable per-species record lives in the species_cache
-# Postgres table (app/models.SpeciesCache), written on the capture path in Week 2; Redis
-# is what the live request path checks first.
+# This is the only rarity cache. There is deliberately no durable copy in Postgres: the
+# species_cache table was removed because nothing read it. The trade-off is that if
+# Redis is unavailable, lookups go straight to GBIF, and if that fails too the capture
+# gets unknown rarity rather than a stale-but-usable answer.
 
 r = redis.from_url(settings.redis_dsn)
 

@@ -1,13 +1,72 @@
-from fastapi import APIRouter, Depends
+import uuid
+from datetime import datetime, timezone
 
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db import get_db
 from app.dependencies.auth import get_current_user_id
+from app.models import Capture
 
 router = APIRouter(prefix="/collection", tags=["collection"])
 
 # Owner: Person B — Rarity Engine & Collection
 
+# rarity_tier is a string on the capture row, so "order by rarity" needs an explicit
+# ranking -- alphabetical would put common before legendary. Sorting in Python rather
+# than SQL: a player's collection is small, and a CASE expression here would have to be
+# kept in step with rarity.py by hand.
+TIER_ORDER = {"legendary": 0, "rare": 1, "uncommon": 2, "common": 3}
+UNRANKED = len(TIER_ORDER)  # unknown rarity sorts last, not first
+
+
+def _utc_iso(value: datetime) -> str:
+    """ISO 8601 with an explicit UTC offset.
+
+    captured_at is stored naive but written from datetime.utcnow(), so it IS UTC -- the
+    column just doesn't say so. Serialising it bare produced "2026-08-05T21:30:00", which
+    `new Date(...)` in the browser reads as *local* time. For a player in California that
+    shifted an evening capture to the following day on their own card. Stamping the
+    offset makes the value mean what it has always meant.
+    """
+    return value.replace(tzinfo=timezone.utc).isoformat()
+
 
 @router.get("")
-async def get_collection(user_id: str = Depends(get_current_user_id)):
-    # TODO: query captures table for this user, ordered by rarity
-    return []
+async def get_collection(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every capture this player owns, rarest first, newest first within a tier.
+
+    Coordinates are already fuzzed -- they were generalised before the row was written
+    (see app/services/geoprivacy.py), so there is nothing to filter out here.
+    """
+    rows = (
+        await db.execute(select(Capture).where(Capture.owner_id == uuid.UUID(user_id)))
+    ).scalars().all()
+
+    rows = sorted(
+        rows,
+        key=lambda c: (TIER_ORDER.get(c.rarity_tier, UNRANKED), -c.captured_at.timestamp()),
+    )
+
+    return [
+        {
+            "id": str(c.id),
+            # What the card shows. Null for rows written before common_name existed, and
+            # for identifications that only reached a family -- the app falls back to
+            # species_id then.
+            "common_name": c.common_name,
+            "species_id": c.species_id,  # scientific name
+            "image_url": c.image_url,
+            "rarity_tier": c.rarity_tier,
+            "lat": c.lat,
+            "lng": c.lng,
+            "confidence_score": c.confidence_score,
+            "confirmed_by_user": c.confirmed_by_user,
+            "captured_at": _utc_iso(c.captured_at),
+        }
+        for c in rows
+    ]
