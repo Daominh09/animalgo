@@ -76,3 +76,15 @@ class Transaction(Base):
     amount: Mapped[int] = mapped_column(Integer)
     type: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class UserItem(Base):
+    """One row per unit owned — a consumable bought 3x is 3 rows, not a
+    quantity column. Using/consuming an item is out of scope for the
+    purchase flow itself; this table only tracks ownership."""
+
+    __tablename__ = "user_items"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("shop_items.id"))
+    acquired_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

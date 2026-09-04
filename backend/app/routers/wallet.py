@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
@@ -40,26 +41,35 @@ async def credit_wallet(
     their own db session, since letting the mobile client hit this over
     HTTP would let any player mint themselves unlimited currency.
 
+    Does the increment as a single atomic INSERT ... ON CONFLICT DO UPDATE
+    rather than SELECT-then-write, so two concurrent callers crediting the
+    same user (e.g. B and C firing at once) can't lose an update to a race
+    — Postgres serializes the two statements via its own row lock instead
+    of us reading a stale balance in Python. Also means a brand-new user's
+    row and an existing one are handled by the same statement, no separate
+    "does this user exist yet" branch needed.
+
     Commits its own transaction. If a caller needs this atomic with other
     writes in the same request, don't call this until those are ready to
     commit too, or refactor to a shared commit point.
 
-    Doesn't enforce a non-negative balance floor — callers doing debits
-    (e.g. a future shop purchase flow) need to check the balance first.
+    Doesn't enforce a non-negative balance floor — this always succeeds
+    regardless of sign. Callers doing conditional debits (e.g. a shop
+    purchase that must reject on insufficient funds) need a check-and-debit
+    that can fail, which this isn't — see purchase_item in shop.py for that
+    pattern instead of using this for debits.
     """
-    user = await db.get(User, user_id)
-    if user is None:
-        # wallet_balance's `default=0` only applies at flush, so it'd still
-        # be None here and crash the += below if not set explicitly.
-        user = User(id=user_id, wallet_balance=0)
-        db.add(user)
-        # No ORM relationship() links User/Transaction, so the flush's
-        # automatic FK-ordering doesn't kick in — without this explicit
-        # flush, the transactions insert can be sent before the users
-        # insert and get rejected by the FK constraint.
-        await db.flush()
+    stmt = (
+        pg_insert(User)
+        .values(id=user_id, wallet_balance=amount)
+        .on_conflict_do_update(
+            index_elements=[User.id],
+            set_={"wallet_balance": User.wallet_balance + amount},
+        )
+        .returning(User.wallet_balance)
+    )
+    new_balance = (await db.execute(stmt)).scalar_one()
 
-    user.wallet_balance += amount
     db.add(Transaction(user_id=user_id, amount=amount, type=reason))
     await db.commit()
-    return user.wallet_balance
+    return new_balance
