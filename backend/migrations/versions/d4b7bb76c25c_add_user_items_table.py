@@ -1,7 +1,7 @@
 """add user_items table
 
 Revision ID: d4b7bb76c25c
-Revises: a1f3c9d2e4b5
+Revises: b7c2e5f81d34
 Create Date: 2026-08-02 22:35:25.520192
 
 """
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'd4b7bb76c25c'
-down_revision: Union[str, Sequence[str], None] = 'a1f3c9d2e4b5'
+down_revision: Union[str, Sequence[str], None] = 'b7c2e5f81d34'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
