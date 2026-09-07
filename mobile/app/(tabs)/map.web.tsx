@@ -4,17 +4,24 @@ import { router, useLocalSearchParams } from "expo-router";
 
 import { useCollection } from "@/api/collection";
 import { CaptureCallout } from "@/map/CaptureCallout";
+import { SpeciesFilterBar } from "@/map/SpeciesFilterBar";
 import {
   boundsFor,
   buildGeoJson,
   capturesToPins,
   CENTER,
+  CLUSTER_COUNT_LAYER,
+  CLUSTER_LAYER,
+  CLUSTER_OPTIONS,
+  filterCapturesBySpecies,
   FIT_OPTIONS,
   MAPLIBRE_CSS,
   MAPLIBRE_JS,
   PIN_HIT_LAYER,
   PIN_LAYER,
+  speciesOptions,
   STYLE_URL,
+  type SpeciesFilter,
   ZOOM,
 } from "@/map/mapHtml";
 
@@ -32,10 +39,14 @@ import {
 // the native build. Minimal shape of the bits we use.
 interface GeoJsonSource {
   setData(data: unknown): void;
+  getClusterExpansionZoom(clusterId: number): Promise<number>;
 }
 interface MapMouseEvent {
   point: { x: number; y: number };
-  features?: { properties: { id: string } }[];
+  features?: {
+    geometry: { coordinates: [number, number] };
+    properties: { id?: string; cluster_id?: number };
+  }[];
 }
 interface MapLibreMap {
   addControl(control: unknown, position?: string): void;
@@ -45,6 +56,7 @@ interface MapLibreMap {
   getCanvas(): HTMLCanvasElement;
   queryRenderedFeatures(point: unknown, options?: unknown): unknown[];
   fitBounds(bounds: [[number, number], [number, number]], options?: unknown): void;
+  easeTo(options: { center: [number, number]; zoom: number }): void;
   on(event: string, layerOrHandler: string | ((e: MapMouseEvent) => void), handler?: (e: MapMouseEvent) => void): void;
   remove(): void;
 }
@@ -96,6 +108,7 @@ export default function MapScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [speciesFilter, setSpeciesFilter] = useState<SpeciesFilter>(undefined);
   const { data, isPending } = useCollection();
   const { focus } = useLocalSearchParams<{ focus?: string }>();
 
@@ -104,15 +117,29 @@ export default function MapScreen() {
   // asking for the same one twice works instead of being a no-op.
   useEffect(() => {
     if (!focus) return;
+    setSpeciesFilter(undefined);
     setFocusId(focus);
     setSelectedId(focus);
     router.setParams({ focus: undefined });
   }, [focus]);
 
-  const pins = useMemo(() => capturesToPins(data ?? []), [data]);
+  const options = useMemo(() => speciesOptions(data ?? []), [data]);
+  const allPins = useMemo(() => capturesToPins(data ?? []), [data]);
+  const pins = useMemo(
+    () => capturesToPins(filterCapturesBySpecies(data ?? [], speciesFilter)),
+    [data, speciesFilter],
+  );
   // Looked up by id rather than stored as an object, so a refetch shows the new version
   // instead of a stale copy, and a capture that disappears closes the card.
-  const selected = data?.find((c) => c.id === selectedId) ?? null;
+  const selected = filterCapturesBySpecies(data ?? [], speciesFilter).find(
+    (capture) => capture.id === selectedId,
+  ) ?? null;
+
+  function handleSpeciesFilter(next: SpeciesFilter) {
+    setSpeciesFilter(next);
+    setSelectedId(null);
+    setFocusId(null);
+  }
 
   // Kept in a ref so the setup effect never re-runs when captures arrive. Re-running it
   // would destroy the map and reload every tile on each refetch.
@@ -143,7 +170,13 @@ export default function MapScreen() {
         map.on("load", () => {
           if (cancelled) return;
           // pinsRef, not pins: captures may have arrived while the tiles were loading.
-          map?.addSource("captures", { type: "geojson", data: buildGeoJson(pinsRef.current) });
+          map?.addSource("captures", {
+            type: "geojson",
+            data: buildGeoJson(pinsRef.current),
+            ...CLUSTER_OPTIONS,
+          });
+          map?.addLayer(CLUSTER_LAYER);
+          map?.addLayer(CLUSTER_COUNT_LAYER);
           map?.addLayer(PIN_LAYER);
           map?.addLayer(PIN_HIT_LAYER);
           const bounds = boundsFor(pinsRef.current, focusRef.current);
@@ -158,10 +191,20 @@ export default function MapScreen() {
           const id = e.features?.[0]?.properties.id;
           if (id) setSelectedId(id);
         });
+        map.on("click", CLUSTER_LAYER.id, (e) => {
+          const feature = e.features?.[0];
+          const clusterId = feature?.properties.cluster_id;
+          if (!feature || clusterId === undefined) return;
+          map?.getSource("captures")?.getClusterExpansionZoom(clusterId).then((zoom) => {
+            map?.easeTo({ center: feature.geometry.coordinates, zoom });
+          });
+        });
         // A click on empty map dismisses the card. This also fires for pin clicks, but
         // MapLibre runs the layer handler first, so the selection survives.
         map.on("click", (e) => {
-          const hits = mapRef.current?.queryRenderedFeatures(e.point, { layers: [PIN_HIT_LAYER.id] });
+          const hits = mapRef.current?.queryRenderedFeatures(e.point, {
+            layers: [PIN_HIT_LAYER.id, CLUSTER_LAYER.id],
+          });
           if (!hits?.length) setSelectedId(null);
         });
         map.on("mouseenter", PIN_HIT_LAYER.id, () => {
@@ -169,6 +212,14 @@ export default function MapScreen() {
           if (canvas) canvas.style.cursor = "pointer";
         });
         map.on("mouseleave", PIN_HIT_LAYER.id, () => {
+          const canvas = mapRef.current?.getCanvas();
+          if (canvas) canvas.style.cursor = "";
+        });
+        map.on("mouseenter", CLUSTER_LAYER.id, () => {
+          const canvas = mapRef.current?.getCanvas();
+          if (canvas) canvas.style.cursor = "pointer";
+        });
+        map.on("mouseleave", CLUSTER_LAYER.id, () => {
           const canvas = mapRef.current?.getCanvas();
           if (canvas) canvas.style.cursor = "";
         });
@@ -220,16 +271,26 @@ export default function MapScreen() {
         </View>
       )}
 
-      <View className="absolute left-0 right-0 top-0" pointerEvents="none">
-        <View className="m-3 self-start rounded-full bg-black/70 px-3 py-1.5">
+      <View className="absolute left-0 right-0 top-0" pointerEvents="box-none">
+        <View className="mx-3 mt-3 self-start rounded-full bg-black/70 px-3 py-1.5" pointerEvents="none">
           <Text className="text-xs font-medium text-white">
             {isPending
               ? "Loading captures…"
               : pins.length === 0
-                ? "No captures with a location yet"
-                : `${pins.length} ${pins.length === 1 ? "capture" : "captures"} · approximate`}
+                ? speciesFilter === undefined
+                  ? "No captures with a location yet"
+                  : "No captures match this species"
+                : speciesFilter === undefined
+                  ? `${pins.length} ${pins.length === 1 ? "capture" : "captures"} · approximate`
+                  : `${pins.length} of ${allPins.length} captures · approximate`}
           </Text>
         </View>
+        <SpeciesFilterBar
+          options={options}
+          selected={speciesFilter}
+          total={allPins.length}
+          onSelect={handleSpeciesFilter}
+        />
       </View>
 
       {selected && (

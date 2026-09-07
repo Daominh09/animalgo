@@ -24,6 +24,11 @@ GBIF_BASE = "https://api.gbif.org/v1"
 _TIMEOUT = httpx.Timeout(10.0)
 
 
+def _normalize_species_name(species_name: str) -> str:
+    """Collapse harmless whitespace differences before lookup and caching."""
+    return " ".join(species_name.split())
+
+
 async def _fetch_gbif_occurrence_count(species_name: str, region: str) -> int:
     """Live GBIF occurrence count. limit=0 returns only the aggregate `count` for the
     scientificName + country filter — no result rows are transferred."""
@@ -36,7 +41,9 @@ async def _fetch_gbif_occurrence_count(species_name: str, region: str) -> int:
 
 async def get_gbif_occurrence_count(species_name: str, region: str = "US") -> int:
     """US occurrence count for a species (region defaults to US), Redis-cached for 7 days."""
-    key = f"gbif:{species_name}:{region}"
+    species_name = _normalize_species_name(species_name)
+    region = region.strip().upper()
+    key = f"gbif:{species_name.casefold()}:{region}"
     return int(await get_or_fetch(key, lambda: _fetch_gbif_occurrence_count(species_name, region)))
 
 
@@ -61,5 +68,6 @@ async def _fetch_iucn_status(species_name: str) -> str:
 async def get_iucn_status(species_name: str) -> str:
     """IUCN Red List threat-status code (LC/NT/VU/EN/CR/...) for a species, Redis-cached
     for 7 days."""
-    key = f"iucn:{species_name}"
+    species_name = _normalize_species_name(species_name)
+    key = f"iucn:{species_name.casefold()}"
     return await get_or_fetch(key, lambda: _fetch_iucn_status(species_name))
