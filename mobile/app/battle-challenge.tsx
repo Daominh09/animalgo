@@ -1,59 +1,182 @@
 import { useState } from "react";
-import { View, Text, Pressable, Image } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { View, Text, Pressable, FlatList, ActivityIndicator, ScrollView } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { router, useLocalSearchParams } from "expo-router";
 
-import { MOCK_MY_ROSTER, MOCK_OPPONENT } from "../src/mocks/captures";
-import { apiFetch } from "../src/api/client";
+import { useChallenge, useOpponents, useRoster, type Opponent } from "@/api/battles";
+import { BattleCard } from "@/battle/BattleCard";
 
 // Owner: Person C — Battle System
-// Week 1: challenge review screen — confirm the matchup, send the mock challenge
-// Week 2: swap MOCK_OPPONENT for a real opponent lookup + real auth token
+// Starting a battle: choose who to fight, then what to fight with.
+//
+// Two steps on one screen rather than two routes. The opponent list is short and the
+// roster is a grid, so both fit, and keeping them together means the player can change
+// their mind about the opponent without losing their capture choice.
+//
+// Accepts an optional `opponentId` param so a future "challenge back" button on the
+// result screen can deep-link straight to a chosen opponent.
+
+function OpponentChip({
+  opponent,
+  selected,
+  onPress,
+}: {
+  opponent: Opponent;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className={`mr-2 rounded-2xl border-2 px-4 py-3 ${
+        selected ? "border-slate-900 bg-slate-900" : "border-slate-200 bg-white"
+      }`}
+    >
+      <Text className={`font-semibold ${selected ? "text-white" : "text-slate-900"}`}>
+        {opponent.display_name}
+      </Text>
+      <Text className={`text-xs ${selected ? "text-slate-300" : "text-slate-500"}`}>
+        {opponent.capture_count} {opponent.capture_count === 1 ? "capture" : "captures"}
+      </Text>
+    </Pressable>
+  );
+}
+
+function Centered({ title, detail }: { title: string; detail?: string }) {
+  return (
+    <View className="flex-1 items-center justify-center px-8">
+      <Text className="text-center text-base text-slate-700">{title}</Text>
+      {detail ? <Text className="mt-2 text-center text-sm text-slate-400">{detail}</Text> : null}
+    </View>
+  );
+}
 
 export default function BattleChallengeScreen() {
-  const router = useRouter();
-  const { captureId } = useLocalSearchParams<{ captureId: string }>();
-  const [status, setStatus] = useState<string | null>(null);
+  const params = useLocalSearchParams<{ opponentId?: string }>();
+  const roster = useRoster();
+  const opponents = useOpponents();
+  const challenge = useChallenge();
 
-  const myCapture = MOCK_MY_ROSTER.find((c) => c.id === captureId) ?? MOCK_MY_ROSTER[0];
-  const opponentCapture = MOCK_OPPONENT.roster[0];
+  const [opponentId, setOpponentId] = useState<string | null>(params.opponentId ?? null);
+  const [captureId, setCaptureId] = useState<string | null>(null);
 
-  const sendChallenge = async () => {
-    setStatus("sending");
-    // The /battles/challenge stub takes opponent_id + my_capture_id as query
-    // params (no request body), matching the other Week 1 route stubs.
-    const params = new URLSearchParams({ opponent_id: MOCK_OPPONENT.id, my_capture_id: myCapture.id });
-    const result = await apiFetch(`/battles/challenge?${params.toString()}`, { method: "POST" });
-    setStatus(result.status);
+  const captures = roster.data ?? [];
+  const canSend = Boolean(opponentId && captureId) && !challenge.isPending;
+
+  const send = () => {
+    if (!opponentId || !captureId) return;
+    challenge.mutate(
+      { opponentId, captureId },
+      {
+        // Straight to the battle you just created, so the challenge is somewhere real
+        // rather than a message that disappears. `replace` so Back returns to the Battle
+        // tab instead of to a challenge form for a challenge already sent.
+        onSuccess: (battle) => router.replace(`/battles/${battle.id}`),
+      },
+    );
   };
 
-  return (
-    <View className="flex-1 items-center justify-center px-6">
-      <Text className="text-lg font-bold mb-6">Confirm Challenge</Text>
+  const loading = roster.isPending || opponents.isPending;
+  const failed = roster.isError || opponents.isError;
 
-      <View className="flex-row items-center justify-center mb-8">
-        <View className="items-center mx-4">
-          <Image source={{ uri: myCapture.imageUrl }} className="w-24 h-24 rounded-md mb-2" />
-          <Text className="font-semibold">{myCapture.speciesName}</Text>
-          <Text className="text-xs text-gray-500 capitalize">{myCapture.rarityTier}</Text>
-        </View>
-        <Text className="text-xl font-bold mx-2">VS</Text>
-        <View className="items-center mx-4">
-          <Image source={{ uri: opponentCapture.imageUrl }} className="w-24 h-24 rounded-md mb-2" />
-          <Text className="font-semibold">{opponentCapture.speciesName}</Text>
-          <Text className="text-xs text-gray-500 capitalize">{opponentCapture.rarityTier}</Text>
-        </View>
+  return (
+    <SafeAreaView className="flex-1 bg-slate-50" edges={["top"]}>
+      <View className="flex-row items-center justify-between px-4 pb-2 pt-3">
+        <Text className="text-2xl font-bold text-slate-900">New battle</Text>
+        <Pressable onPress={() => router.back()} hitSlop={10}>
+          <Text className="text-sm text-slate-500">Cancel</Text>
+        </Pressable>
       </View>
 
-      {status ? (
-        <Text className="mb-4 text-gray-700">Challenge status: {status}</Text>
-      ) : null}
+      {loading ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator />
+        </View>
+      ) : failed ? (
+        <Centered
+          title="Couldn't load the battle setup."
+          detail={
+            roster.error instanceof Error
+              ? roster.error.message
+              : opponents.error instanceof Error
+                ? opponents.error.message
+                : undefined
+          }
+        />
+      ) : captures.length === 0 ? (
+        // You cannot fight with nothing. Sending the player to the camera is the only
+        // useful thing this screen can do for them.
+        <Centered
+          title="You have no captures to battle with."
+          detail="Photograph an animal on the Camera tab first."
+        />
+      ) : (opponents.data ?? []).length === 0 ? (
+        <Centered
+          title="Nobody to challenge yet."
+          detail="Other players show up here once they've made a capture of their own."
+        />
+      ) : (
+        <>
+          <Text className="px-4 pb-2 pt-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Who
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="px-4">
+            {(opponents.data ?? []).map((o) => (
+              <OpponentChip
+                key={o.user_id}
+                opponent={o}
+                selected={o.user_id === opponentId}
+                onPress={() => setOpponentId(o.user_id)}
+              />
+            ))}
+          </ScrollView>
 
-      <Pressable onPress={sendChallenge} className="bg-blue-600 rounded-lg px-6 py-4 items-center w-full">
-        <Text className="text-white font-semibold">Send Challenge</Text>
-      </Pressable>
-      <Pressable onPress={() => router.back()} className="mt-3 px-6 py-3 items-center w-full">
-        <Text className="text-gray-500">Back</Text>
-      </Pressable>
-    </View>
+          <Text className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            With what
+          </Text>
+          <FlatList
+            data={captures}
+            keyExtractor={(item) => item.id}
+            numColumns={3}
+            contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 16 }}
+            columnWrapperStyle={{ gap: 6 }}
+            renderItem={({ item }) => (
+              <View className="mb-1.5 flex-1">
+                <BattleCard
+                  capture={item}
+                  selected={item.id === captureId}
+                  onPress={() => setCaptureId(item.id)}
+                />
+              </View>
+            )}
+          />
+
+          {/* The failure is shown here rather than thrown away: the most likely one is a
+              409 for a challenge already outstanding against this player, which the
+              player can act on by picking someone else. */}
+          {challenge.isError ? (
+            <Text className="px-4 pb-2 text-center text-sm text-rose-600">
+              {challenge.error instanceof Error ? challenge.error.message : "Couldn't send the challenge."}
+            </Text>
+          ) : null}
+
+          <Pressable
+            disabled={!canSend}
+            onPress={send}
+            className={`mx-4 mb-4 items-center rounded-2xl p-4 ${canSend ? "bg-slate-900" : "bg-slate-300"}`}
+          >
+            <Text className="font-semibold text-white">
+              {challenge.isPending
+                ? "Sending…"
+                : !opponentId
+                  ? "Pick an opponent"
+                  : !captureId
+                    ? "Pick a capture"
+                    : "Send challenge"}
+            </Text>
+          </Pressable>
+        </>
+      )}
+    </SafeAreaView>
   );
 }

@@ -6,9 +6,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "../global.css";
 import { useSession } from "../src/auth/useSession";
 import { registerForPushNotifications } from "../src/notifications/registerForPushNotifications";
+import { useBattleNotifications } from "../src/notifications/useBattleNotifications";
 import { useAppStore } from "../src/store/useAppStore";
 
 const queryClient = new QueryClient();
+
+/** The app itself, split out so it sits INSIDE QueryClientProvider: battle notifications
+ *  invalidate queries when one arrives, and useQueryClient throws outside the provider. */
+function AppShell() {
+  useBattleNotifications();
+  return <Stack screenOptions={{ headerShown: false }} />;
+}
 
 export default function RootLayout() {
   const { loading, signedIn } = useSession();
@@ -45,7 +53,7 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Stack screenOptions={{ headerShown: false }} />
+      <AppShell />
     </QueryClientProvider>
   );
 }

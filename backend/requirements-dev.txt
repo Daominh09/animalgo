@@ -1,3 +1,8 @@
 -r requirements.txt
 pytest==9.1.1
 ruff==0.15.21
+# In-memory/temp-file SQLite driver, used only by the battle API tests: they exercise the
+# real challenge -> accept -> resolve flow (conditional-UPDATE claims, rowcount, real
+# commits) against a real database rather than a faked session, because that flow's
+# correctness IS its transaction behaviour.
+aiosqlite==0.20.0
