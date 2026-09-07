@@ -41,15 +41,50 @@ class Capture(Base):
 
 
 class Battle(Base):
+    """One challenge between two players, and its outcome once it resolves.
+
+    Battles are asynchronous (the v1 plan rules out WebSockets): the challenger picks a
+    capture and sends a challenge, and the row sits in `pending` until the opponent picks
+    a capture of their own to answer with. Resolution happens at that moment, once, and
+    everything it produced is written here -- see the roll columns below.
+    """
+
     __tablename__ = "battles"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     challenger_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     opponent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     challenger_capture_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("captures.id"))
-    opponent_capture_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("captures.id"))
+    # Nullable: the opponent has not chosen yet while the challenge is pending. It is
+    # only ever set together with a move out of `pending`, so a resolved battle always
+    # has one.
+    opponent_capture_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("captures.id"), nullable=True
+    )
+    # pending -> resolved | declined | expired. `resolving` is a brief internal state, see
+    # the claim step in app/routers/battles.py.
     status: Mapped[str] = mapped_column(String, default="pending")
     winner_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # When a resolution attempt claimed this battle. Distinct from created_at because the
+    # recovery sweep needs to know how long the ATTEMPT has been running, not how old the
+    # challenge is -- keying recovery on created_at would let a concurrent read reclaim a
+    # resolution that started a moment ago on an hours-old challenge, and that battle
+    # could then be resolved and paid out twice.
+    resolving_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # The resolution breakdown, stored rather than recomputed. GET /battles/{id} is hit
+    # every time either player opens the result screen, and resolve_battle() rolls dice --
+    # recomputing on read would show the two players different numbers, and show one
+    # player different numbers each time they looked. These columns are what make a
+    # resolved battle a fact instead of a re-roll.
+    challenger_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    opponent_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    challenger_roll: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    opponent_roll: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # "challenger" | "opponent" | None -- which side the trait cycle favoured.
+    trait_advantage: Mapped[str | None] = mapped_column(String, nullable=True)
+    coins_awarded: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class ShopItem(Base):

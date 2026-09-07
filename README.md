@@ -155,5 +155,5 @@ Each person owns one feature vertical end-to-end (mobile + backend). See the pro
 |---|---|---|
 | A | Capture & Species ID | `mobile/app/(tabs)/camera.tsx`, `backend/app/routers/captures.py`, `backend/app/services/vision.py`, `backend/app/services/storage.py` |
 | B | Rarity Engine & Collection | `mobile/app/(tabs)/map.tsx`, `mobile/app/(tabs)/collection.tsx`, `backend/app/routers/collection.py`, `backend/app/services/gbif_iucn.py`, `backend/app/services/rarity.py` |
-| C | Battle System | `mobile/app/(tabs)/battle.tsx`, `backend/app/routers/battles.py` |
+| C | Battle System | `mobile/app/(tabs)/battle.tsx`, `mobile/app/battles/[id].tsx`, `mobile/app/battle-challenge.tsx`, `backend/app/routers/battles.py`, `backend/app/services/battle_resolution.py`, `backend/app/services/push.py` |
 | D | Economy, Shop & Shared Infra | `mobile/app/(tabs)/shop.tsx`, `backend/app/routers/wallet.py`, `backend/app/routers/shop.py`, `backend/app/routers/leaderboard.py` |
