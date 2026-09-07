@@ -14,13 +14,16 @@ router = APIRouter(prefix="/leaderboard", tags=["leaderboard"])
 RESULT_LIMIT = 50
 CACHE_TTL_SECONDS = 30  # short — balances/captures change often, unlike species reference data
 
-# Must stay in sync with app/services/rarity.score_rarity's tier scale.
-_RARITY_WEIGHT_CASE = """
+# Must stay in sync with app/services/rarity.COIN_VALUES. Duplicated as a SQL
+# CASE rather than imported, since these two need the same numbers expressed in
+# two different languages (a raw query here vs. a Python function there) --
+# exported so profile.py (also D's) shares this one instead of a third copy.
+RARITY_WEIGHT_CASE_SQL = """
     case rarity_tier
         when 'legendary' then 500
-        when 'rare' then 100
-        when 'uncommon' then 25
-        when 'common' then 5
+        when 'rare' then 200
+        when 'uncommon' then 75
+        when 'common' then 25
         else 0
     end
 """
@@ -41,7 +44,7 @@ _QUERIES = {
         limit {RESULT_LIMIT}
     """,
     "rarity": f"""
-        select u.id::text as user_id, u.display_name, max({_RARITY_WEIGHT_CASE}) as value
+        select u.id::text as user_id, u.display_name, max({RARITY_WEIGHT_CASE_SQL}) as value
         from users u
         join captures c on c.owner_id = u.id
         group by u.id, u.display_name

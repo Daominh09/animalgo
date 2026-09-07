@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 
 import { apiFetch } from "@/api/client";
@@ -23,6 +24,7 @@ type LeaderboardRow = {
 };
 
 export default function LeaderboardScreen() {
+  const router = useRouter();
   const [rankBy, setRankBy] = useState<RankBy>("coins");
   const unit = RANK_OPTIONS.find((o) => o.key === rankBy)!.unit;
 
@@ -55,7 +57,10 @@ export default function LeaderboardScreen() {
         data={data ?? []}
         keyExtractor={(row) => row.user_id}
         renderItem={({ item, index }) => (
-          <View className="flex-row items-center justify-between border-b border-gray-200 px-4 py-3">
+          <Pressable
+            onPress={() => router.push(`/profile/${item.user_id}`)}
+            className="flex-row items-center justify-between border-b border-gray-200 px-4 py-3"
+          >
             <View className="flex-row items-center gap-3">
               <Text className="w-6 text-sm font-semibold text-gray-400">{index + 1}</Text>
               <Text className="text-base">{item.display_name || "Anonymous"}</Text>
@@ -63,7 +68,7 @@ export default function LeaderboardScreen() {
             <Text className="text-base font-semibold">
               {item.value} {unit}
             </Text>
-          </View>
+          </Pressable>
         )}
         ListEmptyComponent={
           isLoading ? (

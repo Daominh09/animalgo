@@ -8,7 +8,7 @@ from app.db import get_db
 from app.dependencies.auth import get_current_user_id
 from app.models import Capture, User
 from app.routers.wallet import credit_wallet
-from app.services import geoprivacy, species, storage, vision
+from app.services import geoprivacy, ratelimit, species, storage, vision
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,16 @@ router = APIRouter(prefix="/captures", tags=["captures"])
 # App-level guard so a huge upload can't exhaust backend memory or waste a
 # Gemini/R2 call. A reverse-proxy body-size limit is the real DoS defense.
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Anti-cheat (Person D): reuses B's login-throttle primitive (app/services/
+# ratelimit.py), keyed on user_id rather than IP for the same reason B keyed
+# theirs on email -- a shared network shouldn't throttle everyone on it, and
+# an attacker switching IPs gains nothing against one account. 20 captures /
+# 5 min is generous for a real walk (a flock, a garden full of birds) but
+# blocks scripted farming and caps how fast one account can burn Gemini/R2
+# calls if a key or session were ever compromised.
+CAPTURE_LIMIT = 20
+CAPTURE_WINDOW_SECONDS = 5 * 60
 
 
 @router.post("/detect-and-store")
@@ -44,6 +54,14 @@ async def detect_and_store(
     will not work). `rarity` is `null` when rarity could not be determined — that means
     *unknown*, not zero and not "common". Full details in `backend/docs/capture-flow.md`.
     """
+    if not await ratelimit.check_and_count(
+        "capture", user_id, CAPTURE_LIMIT, CAPTURE_WINDOW_SECONDS
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many captures. Wait a few minutes and try again.",
+        )
+
     # read() with a cap so an oversized upload never fully lands in memory.
     image_bytes = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(image_bytes) > MAX_UPLOAD_BYTES:

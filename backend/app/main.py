@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import auth, battles, captures, collection, devices, leaderboard, shop, wallet
+from app.routers import auth, battles, captures, collection, devices, leaderboard, profile, shop, wallet
 
 app = FastAPI(title="AnimalGO API")
 
@@ -33,6 +33,7 @@ app.include_router(wallet.router)
 app.include_router(shop.router)
 app.include_router(leaderboard.router)
 app.include_router(devices.router)
+app.include_router(profile.router)
 
 
 @app.get("/health")
