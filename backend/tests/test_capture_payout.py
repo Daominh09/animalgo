@@ -1,4 +1,5 @@
 import io
+import uuid
 
 import pytest
 from fastapi import FastAPI
@@ -11,9 +12,42 @@ from app.routers import captures
 # Owner: Person B — the B -> D hand-off.
 # Vision, storage, rarity and the wallet are all faked, so no network, no DB, no
 # credentials. What's under test is the payout decision, not anyone else's code.
+#
+# The Capture row write (D's hand-off merge) does touch `db` for real -- get/add/
+# flush/commit/refresh -- so it needs more than `lambda: None` now. _FakeSession
+# is the same "no real Postgres" spirit as test_collection.py's fake, just wide
+# enough to cover a write path instead of a single select.
 
 USER_ID = "8f14e45f-ceea-467a-9c1e-1a1b2c3d4e5f"
 PHOTO = {"file": ("bird.jpg", io.BytesIO(b"fake-image-bytes"), "image/jpeg")}
+
+
+class _FakeSession:
+    """In-memory stand-in for AsyncSession, covering only what detect_and_store
+    calls. `get` always reports "no row yet" -- the common path, since these
+    tests use a fresh user each time. `commit` assigns an id to anything added
+    that doesn't have one yet, the same thing a real INSERT's default would do,
+    since callers (the endpoint, these tests) read `capture.id` right after."""
+
+    def __init__(self):
+        self.added = []
+
+    async def get(self, model, id):
+        return None
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def flush(self):
+        pass
+
+    async def commit(self):
+        for obj in self.added:
+            if getattr(obj, "id", None) is None:
+                obj.id = uuid.uuid4()
+
+    async def refresh(self, obj):
+        pass
 
 
 @pytest.fixture
@@ -40,7 +74,7 @@ def client(monkeypatch):
     app = FastAPI()
     app.include_router(captures.router)
     app.dependency_overrides[get_current_user_id] = lambda: USER_ID
-    app.dependency_overrides[get_db] = lambda: None
+    app.dependency_overrides[get_db] = lambda: _FakeSession()
     return TestClient(app)
 
 
