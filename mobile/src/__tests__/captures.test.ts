@@ -1,6 +1,15 @@
 import type { Capture } from "../api/collection";
 import { displayName, GRID_COLUMNS, rowIndexFor, sortCaptures } from "../captures";
-import { boundsFor, buildMapHtml, capturesToPins, computeBounds } from "../map/mapHtml";
+import {
+  boundsFor,
+  buildMapHtml,
+  capturesToPins,
+  CLUSTER_LAYER,
+  CLUSTER_OPTIONS,
+  computeBounds,
+  filterCapturesBySpecies,
+  speciesOptions,
+} from "../map/mapHtml";
 import { rarityMeta } from "../rarity";
 
 // Owner: Person B — Rarity Engine & Collection
@@ -137,6 +146,60 @@ describe("capturesToPins", () => {
   });
 });
 
+describe("speciesOptions", () => {
+  it("groups mapped captures by species and sorts their display labels", () => {
+    const options = speciesOptions([
+      capture({ id: "s1", species_id: "Passer domesticus", common_name: "House Sparrow" }),
+      capture({ id: "s2", species_id: "Passer domesticus", common_name: "House Sparrow" }),
+      capture({ id: "b", species_id: "Ursus americanus", common_name: "American Black Bear" }),
+    ]);
+
+    expect(options).toEqual([
+      { id: "Ursus americanus", label: "American Black Bear", count: 1 },
+      { id: "Passer domesticus", label: "House Sparrow", count: 2 },
+    ]);
+  });
+
+  it("excludes species that have no map pin", () => {
+    expect(speciesOptions([capture({ lat: null, lng: null })])).toEqual([]);
+  });
+
+  it("offers unidentified captures as their own group", () => {
+    expect(speciesOptions([capture({ species_id: null, common_name: "Misleading label" })])).toEqual([
+      { id: null, label: "Unidentified", count: 1 },
+    ]);
+  });
+
+  it("upgrades an old scientific fallback when a newer row has a common name", () => {
+    expect(speciesOptions([
+      capture({ id: "old", common_name: null }),
+      capture({ id: "new", common_name: "House Sparrow" }),
+    ])).toEqual([{ id: "Passer domesticus", label: "House Sparrow", count: 2 }]);
+  });
+});
+
+describe("filterCapturesBySpecies", () => {
+  const captures = [
+    capture({ id: "sparrow", species_id: "Passer domesticus" }),
+    capture({ id: "bear", species_id: "Ursus americanus" }),
+    capture({ id: "unknown", species_id: null }),
+  ];
+
+  it("returns everything when All species is selected", () => {
+    expect(filterCapturesBySpecies(captures, undefined)).toBe(captures);
+  });
+
+  it("filters by scientific species id rather than a potentially duplicated label", () => {
+    expect(filterCapturesBySpecies(captures, "Ursus americanus").map((c) => c.id)).toEqual([
+      "bear",
+    ]);
+  });
+
+  it("can select unidentified captures", () => {
+    expect(filterCapturesBySpecies(captures, null).map((c) => c.id)).toEqual(["unknown"]);
+  });
+});
+
 describe("computeBounds", () => {
   it("returns null when there is nothing to frame", () => {
     expect(computeBounds([])).toBeNull();
@@ -194,6 +257,16 @@ describe("boundsFor", () => {
 // --- the map document -------------------------------------------------------------------
 
 describe("buildMapHtml", () => {
+  it("enables clustering and renders a count layer", () => {
+    const html = buildMapHtml(capturesToPins([capture()]));
+
+    expect(CLUSTER_OPTIONS.cluster).toBe(true);
+    expect(CLUSTER_LAYER.filter).toEqual(["has", "point_count"]);
+    expect(html).toContain(CLUSTER_LAYER.id);
+    expect(html).toContain("point_count_abbreviated");
+    expect(html).toContain("getClusterExpansionZoom");
+  });
+
   it("never lets embedded data close the script tag", () => {
     // JSON.stringify does not escape "<", so a string containing </script> would end the
     // block early and everything after it would parse as HTML — inside a WebView we hand
@@ -212,7 +285,7 @@ describe("buildMapHtml", () => {
     // the source text without changing the value the map receives.
     const pins = capturesToPins([capture({ id: "a<b" })]);
 
-    const embedded = buildMapHtml(pins).match(/data: (\{.*?\}) \}\);/s)?.[1];
+    const embedded = buildMapHtml(pins).match(/data: (\{.*?\}) \}, \{"cluster":true/s)?.[1];
 
     expect(JSON.parse(embedded!).features[0].properties.id).toBe("a<b");
   });

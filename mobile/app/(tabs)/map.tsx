@@ -6,7 +6,14 @@ import { router, useLocalSearchParams } from "expo-router";
 
 import { useCollection } from "@/api/collection";
 import { CaptureCallout } from "@/map/CaptureCallout";
-import { buildMapHtml, capturesToPins } from "@/map/mapHtml";
+import { SpeciesFilterBar } from "@/map/SpeciesFilterBar";
+import {
+  buildMapHtml,
+  capturesToPins,
+  filterCapturesBySpecies,
+  speciesOptions,
+  type SpeciesFilter,
+} from "@/map/mapHtml";
 
 // Owner: Person B — Rarity Engine & Collection
 // Native (iOS/Android) Map screen. The web version lives in map.web.tsx, because
@@ -26,6 +33,7 @@ export default function MapScreen() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [speciesFilter, setSpeciesFilter] = useState<SpeciesFilter>(undefined);
   const { data, isPending } = useCollection();
   const { focus } = useLocalSearchParams<{ focus?: string }>();
 
@@ -34,16 +42,30 @@ export default function MapScreen() {
   // asking for the same one twice works instead of being a no-op.
   useEffect(() => {
     if (!focus) return;
+    setSpeciesFilter(undefined);
     setFocusId(focus);
     setSelectedId(focus);
     router.setParams({ focus: undefined });
   }, [focus]);
 
-  const pins = useMemo(() => capturesToPins(data ?? []), [data]);
+  const options = useMemo(() => speciesOptions(data ?? []), [data]);
+  const allPins = useMemo(() => capturesToPins(data ?? []), [data]);
+  const pins = useMemo(
+    () => capturesToPins(filterCapturesBySpecies(data ?? [], speciesFilter)),
+    [data, speciesFilter],
+  );
   // Looked up by id rather than stored as an object, so a refetch that changes a
   // capture shows the new version instead of a stale copy — and a capture that
   // disappears closes the card instead of pinning a row that no longer exists.
-  const selected = data?.find((c) => c.id === selectedId) ?? null;
+  const selected = filterCapturesBySpecies(data ?? [], speciesFilter).find(
+    (capture) => capture.id === selectedId,
+  ) ?? null;
+
+  function handleSpeciesFilter(next: SpeciesFilter) {
+    setSpeciesFilter(next);
+    setSelectedId(null);
+    setFocusId(null);
+  }
 
   /** The map document talks to us over the WebView bridge; every message is JSON. */
   function handleMessage(raw: string) {
@@ -72,8 +94,12 @@ export default function MapScreen() {
   const label = isPending
     ? "Loading captures…"
     : pins.length === 0
-      ? "No captures with a location yet"
-      : `${pins.length} ${pins.length === 1 ? "capture" : "captures"} · approximate`;
+      ? speciesFilter === undefined
+        ? "No captures with a location yet"
+        : "No captures match this species"
+      : speciesFilter === undefined
+        ? `${pins.length} ${pins.length === 1 ? "capture" : "captures"} · approximate`
+        : `${pins.length} of ${allPins.length} captures · approximate`;
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -106,10 +132,16 @@ export default function MapScreen() {
         </View>
       )}
 
-      <SafeAreaView className="absolute left-0 right-0 top-0" edges={["top"]} pointerEvents="none">
-        <View className="m-3 self-start rounded-full bg-black/70 px-3 py-1.5">
+      <SafeAreaView className="absolute left-0 right-0 top-0" edges={["top"]} pointerEvents="box-none">
+        <View className="mx-3 mt-3 self-start rounded-full bg-black/70 px-3 py-1.5" pointerEvents="none">
           <Text className="text-xs font-medium text-white">{label}</Text>
         </View>
+        <SpeciesFilterBar
+          options={options}
+          selected={speciesFilter}
+          total={allPins.length}
+          onSelect={handleSpeciesFilter}
+        />
       </SafeAreaView>
 
       {selected && (

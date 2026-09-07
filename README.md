@@ -73,6 +73,29 @@ npx expo start
 ```
 Scan the QR code with Expo Go, or press `i`/`a` for a simulator.
 
+### Load the map demo data
+
+With the backend configured and migrations applied, seed the account you will use in the
+app:
+
+```
+cd backend
+python -m scripts.seed_captures --email you@example.com --password 'your-password'
+```
+
+Sign into the mobile app with the same credentials. The command is safe to rerun and
+adds a sample collection with repeated species, nearby captures that form map clusters,
+an unidentified capture, and one capture without a location.
+
+To verify Redis is serving repeated rarity lookups instead of repeatedly calling GBIF:
+
+```
+cd backend
+python -m scripts.check_cache_hit_rate --repeats 5
+```
+
+On a cold cache the expected minimum is 80%; a warm cache should report 100%.
+
 Pinned to Expo **SDK 54**, not the newer SDK 57, on purpose: as of writing,
 the public Expo Go app on the App Store still ships the SDK 54 runtime —
 SDK 57's native Expo Go build is sitting in Apple's review queue. Bumping to

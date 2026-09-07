@@ -23,6 +23,16 @@
 
 import { rarityMeta } from "../rarity";
 import type { Capture } from "../api/collection";
+import { displayName } from "../captures";
+
+/** `undefined` means every species; `null` is the real "unidentified" group. */
+export type SpeciesFilter = string | null | undefined;
+
+export interface SpeciesOption {
+  id: string | null;
+  label: string;
+  count: number;
+}
 
 /** A capture rendered as a map pin. Captures without coordinates are filtered out. */
 export interface MapPin {
@@ -39,6 +49,37 @@ export function capturesToPins(captures: Capture[]): MapPin[] {
   return captures
     .filter((c): c is Capture & { lat: number; lng: number } => c.lat !== null && c.lng !== null)
     .map((c) => ({ id: c.id, lat: c.lat, lng: c.lng, rarity: c.rarity_tier }));
+}
+
+/** Species represented by at least one map pin, ordered by their player-facing name. */
+export function speciesOptions(captures: Capture[]): SpeciesOption[] {
+  const options = new Map<string | null, SpeciesOption>();
+
+  for (const capture of captures) {
+    if (capture.lat === null || capture.lng === null) continue;
+    const id = capture.species_id;
+    const label = id === null ? "Unidentified" : displayName(capture);
+    const existing = options.get(id);
+    if (existing) {
+      existing.count += 1;
+      // Old rows may predate common_name. Prefer a later player-friendly label over
+      // keeping the scientific fallback just because that row happened to sort first.
+      if (id !== null && existing.label === id && label !== id) existing.label = label;
+    } else {
+      options.set(id, { id, label, count: 1 });
+    }
+  }
+
+  return [...options.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/** Apply one species chip. Unidentified captures remain a filterable group. */
+export function filterCapturesBySpecies(
+  captures: Capture[],
+  speciesId: SpeciesFilter,
+): Capture[] {
+  if (speciesId === undefined) return captures;
+  return captures.filter((capture) => capture.species_id === speciesId);
 }
 
 // Free demo tiles hosted by MapLibre — no API key, no usage fees.
@@ -85,7 +126,7 @@ export function boundsFor(
   return computeBounds(focused.length ? focused : pins);
 }
 
-/** GeoJSON for the capture pins layer. */
+/** GeoJSON for the capture source. MapLibre clusters these features at display time. */
 export function buildGeoJson(pins: MapPin[] = []) {
   return {
     type: "FeatureCollection",
@@ -97,11 +138,53 @@ export function buildGeoJson(pins: MapPin[] = []) {
   };
 }
 
-/** The circle layer definition, shared by both platforms. */
+/** Clustering happens inside MapLibre, so filtering can replace the source data without
+ * having to calculate geographic distances in React Native. */
+export const CLUSTER_OPTIONS = {
+  cluster: true,
+  clusterMaxZoom: 14,
+  clusterRadius: 50,
+};
+
+export const CLUSTER_LAYER = {
+  id: "capture-clusters",
+  type: "circle",
+  source: "captures",
+  filter: ["has", "point_count"],
+  paint: {
+    "circle-color": [
+      "step",
+      ["get", "point_count"],
+      "#0f766e",
+      10,
+      "#0e7490",
+      30,
+      "#1d4ed8",
+    ],
+    "circle-radius": ["step", ["get", "point_count"], 18, 10, 23, 30, 28],
+    "circle-stroke-width": 2,
+    "circle-stroke-color": "#ffffff",
+  },
+};
+
+export const CLUSTER_COUNT_LAYER = {
+  id: "capture-cluster-count",
+  type: "symbol",
+  source: "captures",
+  filter: ["has", "point_count"],
+  layout: {
+    "text-field": ["get", "point_count_abbreviated"],
+    "text-size": 12,
+  },
+  paint: { "text-color": "#ffffff" },
+};
+
+/** The unclustered capture circle, shared by both platforms. */
 export const PIN_LAYER = {
   id: "capture-pins",
   type: "circle",
   source: "captures",
+  filter: ["!", ["has", "point_count"]],
   paint: {
     "circle-radius": 7,
     "circle-color": ["get", "color"],
@@ -117,6 +200,7 @@ export const PIN_HIT_LAYER = {
   id: "capture-pins-hit",
   type: "circle",
   source: "captures",
+  filter: ["!", ["has", "point_count"]],
   paint: {
     "circle-radius": 22,
     "circle-color": "#000000",
@@ -151,6 +235,9 @@ function safeJson(value: unknown): string {
  * mechanism, and it avoids a second messaging path for something that happens once. */
 export function buildMapHtml(pins: MapPin[] = [], focusId?: string | null): string {
   const data = safeJson(buildGeoJson(pins));
+  const clusterOptions = safeJson(CLUSTER_OPTIONS);
+  const clusterLayer = safeJson(CLUSTER_LAYER);
+  const clusterCountLayer = safeJson(CLUSTER_COUNT_LAYER);
   const layer = safeJson(PIN_LAYER);
   const hitLayer = safeJson(PIN_HIT_LAYER);
   const bounds = safeJson(boundsFor(pins, focusId));
@@ -179,7 +266,9 @@ export function buildMapHtml(pins: MapPin[] = [], focusId?: string | null): stri
       });
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
       map.on('load', function () {
-        map.addSource('captures', { type: 'geojson', data: ${data} });
+        map.addSource('captures', Object.assign({ type: 'geojson', data: ${data} }, ${clusterOptions}));
+        map.addLayer(${clusterLayer});
+        map.addLayer(${clusterCountLayer});
         map.addLayer(${layer});
         map.addLayer(${hitLayer});
         var bounds = ${bounds};
@@ -193,14 +282,24 @@ export function buildMapHtml(pins: MapPin[] = [], focusId?: string | null): stri
           post({ type: 'select', id: e.features[0].properties.id });
         }
       });
+      map.on('click', '${CLUSTER_LAYER.id}', function (e) {
+        if (!e.features || !e.features.length) return;
+        var feature = e.features[0];
+        var source = map.getSource('captures');
+        source.getClusterExpansionZoom(feature.properties.cluster_id).then(function (zoom) {
+          map.easeTo({ center: feature.geometry.coordinates, zoom: zoom });
+        });
+      });
       // A tap on empty map dismisses the card. This fires for pin taps too, but
       // MapLibre runs the layer handler first, so the selection survives.
       map.on('click', function (e) {
-        var hits = map.queryRenderedFeatures(e.point, { layers: ['${PIN_HIT_LAYER.id}'] });
+        var hits = map.queryRenderedFeatures(e.point, { layers: ['${PIN_HIT_LAYER.id}', '${CLUSTER_LAYER.id}'] });
         if (!hits.length) { post({ type: 'deselect' }); }
       });
       map.on('mouseenter', '${PIN_HIT_LAYER.id}', function () { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', '${PIN_HIT_LAYER.id}', function () { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', '${CLUSTER_LAYER.id}', function () { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', '${CLUSTER_LAYER.id}', function () { map.getCanvas().style.cursor = ''; });
 
       map.on('error', function () { post({ type: 'error' }); });
     }
