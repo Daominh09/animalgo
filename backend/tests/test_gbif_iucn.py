@@ -13,12 +13,14 @@ class FakeRedis:
 
     def __init__(self):
         self.store: dict[str, bytes] = {}
+        self.expirations: dict[str, int | None] = {}
 
     async def get(self, key):
         return self.store.get(key)
 
     async def set(self, key, value, ex=None):
         self.store[key] = str(value).encode()
+        self.expirations[key] = ex
 
 
 class FakeResponse:
@@ -65,7 +67,9 @@ def _patch(monkeypatch, responder):
 
 
 def test_get_or_fetch_caches_and_reuses(monkeypatch):
-    monkeypatch.setattr(cache, "r", FakeRedis())
+    fake_redis = FakeRedis()
+    monkeypatch.setattr(cache, "r", fake_redis)
+    cache.cache_metrics.reset()
     calls = {"n": 0}
 
     async def fetch():
@@ -79,10 +83,35 @@ def test_get_or_fetch_caches_and_reuses(monkeypatch):
     assert first == "42"
     assert second == "42"
     assert calls["n"] == 1  # second call served from cache, fetch not re-run
+    assert fake_redis.expirations["k"] == cache.WEEK_SECONDS
+    assert cache.cache_metrics.hits == 1
+    assert cache.cache_metrics.misses == 1
+    assert cache.cache_metrics.hit_rate == 0.5
+
+
+def test_repeated_lookups_reach_expected_cold_cache_hit_rate(monkeypatch):
+    monkeypatch.setattr(cache, "r", FakeRedis())
+    cache.cache_metrics.reset()
+    calls = {"n": 0}
+
+    async def fetch():
+        calls["n"] += 1
+        return "42"
+
+    async def run():
+        for _ in range(10):
+            await cache.get_or_fetch("same-species", fetch)
+
+    asyncio.run(run())
+
+    assert calls["n"] == 1
+    assert cache.cache_metrics.requests == 10
+    assert cache.cache_metrics.hit_rate == 0.9
 
 
 def test_get_or_fetch_does_not_cache_on_error(monkeypatch):
     monkeypatch.setattr(cache, "r", FakeRedis())
+    cache.cache_metrics.reset()
 
     async def boom():
         raise RuntimeError("upstream down")
@@ -123,6 +152,17 @@ def test_gbif_regions_cached_independently(monkeypatch):
 
     asyncio.run(run())
     assert len(calls) == 2  # different regions are distinct cache keys
+
+
+def test_equivalent_gbif_names_and_regions_share_a_cache_entry(monkeypatch):
+    calls = _patch(monkeypatch, lambda url: FakeResponse({"count": 23}))
+
+    async def run():
+        await gbif_iucn.get_gbif_occurrence_count("Panthera   tigris", "us")
+        await gbif_iucn.get_gbif_occurrence_count(" panthera tigris ", "US")
+
+    asyncio.run(run())
+    assert len(calls) == 1
 
 
 # --- IUCN status via GBIF -----------------------------------------------------------
