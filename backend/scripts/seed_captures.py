@@ -1,15 +1,15 @@
-"""Seed a player account with sample captures.
+"""Seed a player account with a map-and-collection demo.
 
-Person A's capture write does not exist yet, so nothing ever inserts a Capture row and
-the Collection and Map screens render empty against a real database. This fills in that
-gap for development.
+The sample set includes repeated species and captures in the same geoprivacy grid cell,
+so the Map's species filters and clusters are visible immediately.
 
 Credentials are arguments, never defaults in the file, so no password ends up in git:
 
-    python scripts/seed_captures.py --email you@example.com --password '...'
+    python -m scripts.seed_captures --email you@example.com --password '...'
 
-Idempotent: capture ids are derived from the owner and species, so re-running updates
-nothing and inserts nothing twice.
+Idempotent: capture ids are derived from the owner and sample key, so re-running updates
+nothing and inserts nothing twice. Original sample keys remain unchanged, preserving ids
+created by older versions of this script.
 
 Delete this script once real captures can be created through the app.
 """
@@ -41,18 +41,146 @@ def photo(keyword: str, lock: int) -> str:
 # fuzzed form of 48.87466, 2.34515.
 #
 # Tiers are what score_rarity actually returns for these species' US occurrence counts,
-# so the seeded data cannot disagree with the live rarity engine.
-SPECIES = [
-    ("Panthera tigris", "Tiger", "legendary", 48.85, 2.35, 0.94, photo("tiger", 2)),
-    ("Puma concolor", "Mountain Lion", "rare", 40.75, -111.85, 0.81, photo("cougar", 5)),
-    ("Ursus americanus", "American Black Bear", "uncommon", 44.45, -110.55, 0.88, photo("bear", 6)),
-    ("Cardinalis cardinalis", "Northern Cardinal", "common", 39.85, -98.55, 0.96, photo("cardinal-bird", 7)),
+# so the seeded data cannot disagree with the live rarity engine. The first field is a
+# stable sample key. Repeated coordinates deliberately model captures that landed in the
+# same fuzzed grid cell, making MapLibre's clusters visible even after filtering.
+SAMPLE_CAPTURES = [
+    (
+        "Panthera tigris",
+        "Panthera tigris",
+        "Tiger",
+        "legendary",
+        48.85,
+        2.35,
+        0.94,
+        photo("tiger", 2),
+    ),
+    (
+        "Puma concolor",
+        "Puma concolor",
+        "Mountain Lion",
+        "rare",
+        40.75,
+        -111.85,
+        0.81,
+        photo("cougar", 5),
+    ),
+    (
+        "Puma concolor:2",
+        "Puma concolor",
+        "Mountain Lion",
+        "rare",
+        40.75,
+        -111.85,
+        0.87,
+        photo("cougar", 10),
+    ),
+    (
+        "Ursus americanus",
+        "Ursus americanus",
+        "American Black Bear",
+        "uncommon",
+        44.45,
+        -110.55,
+        0.88,
+        photo("bear", 6),
+    ),
+    (
+        "Ursus americanus:2",
+        "Ursus americanus",
+        "American Black Bear",
+        "uncommon",
+        44.45,
+        -110.55,
+        0.84,
+        photo("bear", 11),
+    ),
+    (
+        "Cardinalis cardinalis",
+        "Cardinalis cardinalis",
+        "Northern Cardinal",
+        "common",
+        39.85,
+        -98.55,
+        0.96,
+        photo("cardinal-bird", 7),
+    ),
+    (
+        "Cardinalis cardinalis:2",
+        "Cardinalis cardinalis",
+        "Northern Cardinal",
+        "common",
+        39.85,
+        -98.55,
+        0.93,
+        photo("cardinal-bird", 12),
+    ),
+    (
+        "Cardinalis cardinalis:3",
+        "Cardinalis cardinalis",
+        "Northern Cardinal",
+        "common",
+        39.95,
+        -98.45,
+        0.90,
+        photo("cardinal-bird", 13),
+    ),
     # A family, not a species: no common name to show, and rarity could not be
     # determined. Renders the dashed "Unknown" badge, a grey pin, and falls back to the
     # scientific name on the card.
-    ("Troglodytidae", None, None, 34.05, -118.25, 0.42, photo("wren", 8)),
+    (
+        "Troglodytidae",
+        "Troglodytidae",
+        None,
+        None,
+        34.05,
+        -118.25,
+        0.42,
+        photo("wren", 8),
+    ),
+    # A genuinely unidentified capture exercises the Map's Unidentified species chip.
+    (
+        "unidentified:1",
+        None,
+        None,
+        None,
+        34.05,
+        -118.25,
+        0.20,
+        photo("wildlife", 14),
+    ),
     # No location: shows in the Collection grid, never on the map.
-    ("Passer domesticus", "House Sparrow", "common", None, None, 0.91, photo("sparrow", 9)),
+    (
+        "Passer domesticus",
+        "Passer domesticus",
+        "House Sparrow",
+        "common",
+        None,
+        None,
+        0.91,
+        photo("sparrow", 9),
+    ),
+    # Mapped sparrows make the repeated-species count and another cluster easy to see.
+    (
+        "Passer domesticus:2",
+        "Passer domesticus",
+        "House Sparrow",
+        "common",
+        34.05,
+        -118.25,
+        0.95,
+        photo("sparrow", 15),
+    ),
+    (
+        "Passer domesticus:3",
+        "Passer domesticus",
+        "House Sparrow",
+        "common",
+        34.05,
+        -118.25,
+        0.89,
+        photo("sparrow", 16),
+    ),
 ]
 
 
@@ -108,8 +236,10 @@ async def seed(email: str, password: str) -> None:
         updated = 0
         earned = 0
 
-        for i, (species, common, tier, lat, lng, confidence, image_url) in enumerate(SPECIES):
-            capture_id = uuid.uuid5(SEED_NAMESPACE, f"{owner_id}:{species}")
+        for i, (sample_key, species, common, tier, lat, lng, confidence, image_url) in enumerate(
+            SAMPLE_CAPTURES
+        ):
+            capture_id = uuid.uuid5(SEED_NAMESPACE, f"{owner_id}:{sample_key}")
             existing = (
                 await db.execute(select(Capture).where(Capture.id == capture_id))
             ).scalar_one_or_none()
